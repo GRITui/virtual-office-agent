@@ -22,6 +22,10 @@ const TINT_KEYS = [ // [hour, r, g, b, alpha] flat ambient tint keyframes (wraps
 ];
 const DAY_MS = 3600000; // 1 real hour = 1 full scene day
 const AGENT_ORDER = ['product-owner', 'pixel-art-designer', 'ux-ui', 'software-engineer', 'qa-visual', 'qa-journey'];
+// SOT accent as a THREE.Color: pack the sRGB hex and let setHex linearize it into
+// the linear-sRGB working space. The float ctor new Color(r/255,g/255,b/255) treats
+// the values as LINEAR, which leaves SOT colors un-linearized (washed/bright vs SOT).
+const accentColor = (name) => new THREE.Color().setHex((ACCENTS[name][0] << 16) | (ACCENTS[name][1] << 8) | ACCENTS[name][2]);
 // anchor_px from assets/office3d/avatars/manifest.json (cell origin + (32,14))
 const ANCHOR_PX = {
   'product-owner': [32, 61], 'pixel-art-designer': [96, 61], 'ux-ui': [160, 61],
@@ -129,16 +133,31 @@ async function loadAssets() {
     root.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
     scene.add(root);
     const armL = root.getObjectByName('armL'), armR = root.getObjectByName('armR'), head = root.getObjectByName('head');
-    // state glow: a small emissive disc at the desk (profile-colored) + a point lamp
-    const glowMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(ACCENTS[name][0] / 255, ACCENTS[name][1] / 255, ACCENTS[name][2] / 255), transparent: true, opacity: 0.0 });
+    // state glow: a small emissive disc at the desk (profile-colored) + a point lamp.
+    // toneMapped:false — the disc is a flat profile-color beacon; running it through
+    // ACESFilmicToneMapping desaturates + lifts it (washed-out vs SOT at 390px).
+    // Exempting it keeps the SOT hue/saturation intact on the rendered pixel.
+    // fog:false — the top-row discs sit ~24m out, inside the 18-40m fog band;
+    // fog would blend them toward the (navy at night) fog color, a second wash
+    // on the profile color. The disc is a flat beacon: it must not fade.
+    const glowMat = new THREE.MeshBasicMaterial({ color: accentColor(name), transparent: true, opacity: 0.0, toneMapped: false, fog: false });
     const glow = new THREE.Mesh(new THREE.CircleGeometry(0.16, 20), glowMat);
     glow.rotation.x = -Math.PI / 2; glow.position.set(DESK_XZ[i][0], 0.02, DESK_XZ[i][1]);
     scene.add(glow);
-    const lamp = new THREE.PointLight(new THREE.Color(ACCENTS[name][0] / 255, ACCENTS[name][1] / 255, ACCENTS[name][2] / 255), 0.0, 4.5, 2);
+    // contrast rim: a thin dark ring around the disc. The SOT hues are fixed,
+    // and gold-on-cream (day) / blue-on-navy (night) are low-contrast pairs at
+    // 390px — the dark edge separates the disc from the floor without touching
+    // the SOT color. Same exemptions as the disc (no ACES, no fog), same
+    // opacity curve, so it appears/disappears with the disc.
+    const rimMat = new THREE.MeshBasicMaterial({ color: 0x141821, transparent: true, opacity: 0.0, toneMapped: false, fog: false });
+    const rim = new THREE.Mesh(new THREE.RingGeometry(0.16, 0.21, 24), rimMat);
+    rim.rotation.x = -Math.PI / 2; rim.position.set(DESK_XZ[i][0], 0.021, DESK_XZ[i][1]);
+    scene.add(rim);
+    const lamp = new THREE.PointLight(accentColor(name), 0.0, 4.5, 2);
     lamp.position.copy(lampPos[i]); scene.add(lamp);
     avatars[name] = {
-      root, armL, armR, head, lamp, glow, glowMat,
-      state: 'idle', color: new THREE.Color(ACCENTS[name][0] / 255, ACCENTS[name][1] / 255, ACCENTS[name][2] / 255),
+      root, armL, armR, head, lamp, glow, glowMat, rim, rimMat,
+      state: 'idle', color: accentColor(name),
       card: '', card_id: null, card_state: null, tool_label: null,
       stream: [], pose: { aL: 0, aR: 0, h: 0 }, baseY: root.position.y,
       anchor3: new THREE.Vector3(x3, 1.25, z3) // label anchor (above head)
@@ -191,9 +210,10 @@ function applyState(s) {
     av.card_id = a.card_id; av.card_state = a.card_state; av.tool_label = a.tool_label;
     av.elapsed_ms = a.elapsed_ms;
     av.pose = POSE[a.state] || POSE.idle;
-    // glow disc: profile-colored, on when active
+    // glow disc: profile-colored, on when active.
+    // Opacity is set in applyLighting() (time-of-day aware: 0.85 day -> 1.0
+    // night, so the disc reads as pure SOT color on the dark night floor).
     av.glowMat.color.set(a.color || '#888');
-    av.glowMat.opacity = ACTIVE.includes(a.state) ? 0.55 : 0.0;
   }
   applyLighting();
   updateBoardCounts();
@@ -213,9 +233,18 @@ function applyLighting() {
   for (const n of AGENT_ORDER) {
     const av = avatars[n]; if (!av) continue;
     const active = ACTIVE.includes(av.state);
-    // active lamps bright; idle lamps ride the night glow (auto-on at dusk)
-    av.lamp.intensity = (active ? 2.2 : 0.0) + st.glow * (active ? 0.4 : 0.7);
+    // active lamps bright; idle lamps ride the night glow (auto-on at dusk).
+    // Active base 3.0 (was 2.2): pushes the profile hue onto the desk so it
+    // reads at 390px — the lamp light still passes through ACES (lights cannot
+    // be tone-mapping-exempt), so the disc is the primary color beacon.
+    av.lamp.intensity = (active ? 3.0 : 0.0) + st.glow * (active ? 0.4 : 0.7);
     av.lamp.color.copy(av.color);
+    // glow disc opacity: near-solid beacon. 0.85 by day -> 1.0 at night: at
+    // lower alpha the disc blends into the dark navy floor at 390px (worst
+    // case: top-row discs in the dim far corner), losing the profile hue.
+    const discOp = active ? (0.85 + 0.15 * st.darkness) : 0.0;
+    av.glowMat.opacity = discOp;
+    av.rimMat.opacity = discOp; // rim rides the disc
   }
 }
 
