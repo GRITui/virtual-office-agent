@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Anim probe</title>
+<style>html,body{margin:0;padding:0;background:#2b2622;}</style>
+<script type="importmap">
+{ "imports": {
+  "three": "./vendor/three.module.js",
+  "three/addons/": "./vendor/"
+}}
+</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<pre id="dbg" style="position:fixed;top:0;left:0;color:#0f0;font:12px monospace;z-index:9"></pre>
+<script>
+window.__dbg = (m) => { const el = document.getElementById('dbg'); el.textContent += m + "\n"; };
+window.addEventListener('error', (e) => window.__dbg('WINERR ' + (e.message || e)));
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+window.__dbg('three=' + THREE.REVISION);
+const params = new URLSearchParams(location.search);
+const CLIP = params.get('clip') || 'idle_blink';
+const T = parseFloat(params.get('t') || '0');
+const W = 1200, H = 700;
+const renderer = new THREE.WebGLRenderer({canvas: document.getElementById('c'), antialias:true});
+renderer.setSize(W, H); renderer.setPixelRatio(1);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x2b2622);
+const camera = new THREE.PerspectiveCamera(40, W/H, 0.1, 100);
+camera.position.set(2.4, 0.8, 0.0);
+camera.lookAt(0.0, 0.62, 0.0);
+const key = new THREE.DirectionalLight(0xffe0b0, 2.2); key.position.set(3.0,4.0,2.5); scene.add(key);
+const fill = new THREE.DirectionalLight(0xbcd4ff, 0.8); fill.position.set(2.0,2.0,-3.0); scene.add(fill);
+scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(12,8),
+  new THREE.MeshStandardMaterial({color:0x3a332c, roughness:1.0, metalness:0.0}));
+floor.rotation.x = -Math.PI/2; scene.add(floor);
+const loader = new GLTFLoader();
+loader.load('../assets/office3d/avatars/product-owner.glb', (gltf) => {
+  scene.add(gltf.scene);
+  const mixer = new THREE.AnimationMixer(gltf.scene);
+  const actions = {};
+  gltf.animations.forEach((c) => { actions[c.name] = mixer.clipAction(c); });
+  window.__dbg('clips=' + Object.keys(actions).length);
+  const act = actions[CLIP];
+  if (!act) { window.__RENDER_ERR = 'no clip ' + CLIP; window.__dbg('RENDER_ERR'); return; }
+  Object.values(actions).forEach((a) => a.stop());
+  act.reset(); act.setLoop(THREE.LoopRepeat, Infinity); act.paused = true; act.play();
+  act.time = Math.min(T, act.getClip().duration - 1e-4);
+  mixer.update(0);
+  scene.updateMatrixWorld(true);
+  // ---- ground truth: world transforms of rig nodes + torso world box ----
+  const RIG = ["root","hips","torso","head","eyeL","eyeR","armL","armR","legL","legR","prop","hat"];
+  const byName = {};
+  gltf.scene.traverse((o) => { if (o.name) byName[o.name] = o; });
+  const out = { clip: CLIP, t: T, nodes: {} };
+  for (const n of RIG) {
+    const o = byName[n];
+    if (!o) { out.nodes[n] = 'MISSING'; continue; }
+    o.updateWorldMatrix(true, false);
+    const p = new THREE.Vector3(); o.getWorldPosition(p);
+    const e = new THREE.Euler().setFromQuaternion(o.getWorldQuaternion(new THREE.Quaternion()), 'XYZ');
+    out.nodes[n] = {
+      pos: [p.x.toFixed(3), p.y.toFixed(3), p.z.toFixed(3)],
+      rot: [THREE.MathUtils.radToDeg(e.x).toFixed(1), THREE.MathUtils.radToDeg(e.y).toFixed(1), THREE.MathUtils.radToDeg(e.z).toFixed(1)]
+    };
+  }
+  // torso mesh world box
+  const torsoMesh = byName['torso'];
+  if (torsoMesh && torsoMesh.isMesh) {
+    const b = new THREE.Box3().setFromObject(torsoMesh);
+    out.torsoBox = { min: [b.min.x.toFixed(2),b.min.y.toFixed(2),b.min.z.toFixed(2)],
+                     max: [b.max.x.toFixed(2),b.max.y.toFixed(2),b.max.z.toFixed(2)] };
+  } else { out.torsoBox = 'NO-MESH-ON-NODE'; }
+  window.__PROBE = JSON.stringify(out);
+  window.__dbg('PROBE ' + window.__PROBE);
+  let frames = 0;
+  function loop() { renderer.render(scene, camera); frames++;
+    if (frames >= 4) { window.__RENDER_DONE = true; window.__dbg('render-done'); return; }
+    requestAnimationFrame(loop); }
+  requestAnimationFrame(loop);
+}, undefined, (err) => { window.__RENDER_ERR = 'load ' + err; window.__dbg('LOADERR ' + err); });
+</script>
+</body>
+</html>

@@ -1,0 +1,238 @@
+{
+  "version": 1,
+  "px_to_m": 0.05,
+  "rig": [
+    "root",
+    "hips",
+    "torso",
+    "head",
+    "eyeL",
+    "eyeR",
+    "armL",
+    "armR",
+    "legL",
+    "legR",
+    "prop",
+    "hat"
+  ],
+  "avatars": {
+    "product-owner": {
+      "file": "product-owner.glb",
+      "height_m": 1.15,
+      "facing": "+Z",
+      "color": "#e8b93d",
+      "anchor_px": [
+        32,
+        61
+      ]
+    },
+    "pixel-art-designer": {
+      "file": "pixel-art-designer.glb",
+      "height_m": 1.15,
+      "facing": "+Z",
+      "color": "#e05d5d",
+      "anchor_px": [
+        96,
+        61
+      ]
+    },
+    "ux-ui": {
+      "file": "ux-ui.glb",
+      "height_m": 1.15,
+      "facing": "+Z",
+      "color": "#5db8e0",
+      "anchor_px": [
+        160,
+        61
+      ]
+    },
+    "software-engineer": {
+      "file": "software-engineer.glb",
+      "height_m": 1.15,
+      "facing": "+Z",
+      "color": "#7ec96f",
+      "anchor_px": [
+        32,
+        121
+      ]
+    },
+    "qa-visual": {
+      "file": "qa-visual.glb",
+      "height_m": 1.15,
+      "facing": "+Z",
+      "color": "#c98fe0",
+      "anchor_px": [
+        96,
+        121
+      ]
+    },
+    "qa-journey": {
+      "file": "qa-journey.glb",
+      "height_m": 1.15,
+      "facing": "+Z",
+      "color": "#e09a5d",
+      "anchor_px": [
+        160,
+        121
+      ]
+    }
+  },
+  "desks": {
+    "agents": [
+      "product-owner",
+      "pixel-art-designer",
+      "ux-ui",
+      "software-engineer",
+      "qa-visual",
+      "qa-journey"
+    ],
+    "anchor_px": {
+      "pixel-art-designer": [
+        96,
+        61
+      ],
+      "product-owner": [
+        32,
+        61
+      ],
+      "qa-journey": [
+        160,
+        121
+      ],
+      "qa-visual": [
+        96,
+        121
+      ],
+      "software-engineer": [
+        32,
+        121
+      ],
+      "ux-ui": [
+        160,
+        61
+      ]
+    },
+    "cell_px": [
+      64,
+      60
+    ],
+    "cols": 3,
+    "rows": 2,
+    "top_px": 47
+  },
+  "room_px": [
+    192,
+    168
+  ],
+  "wall_h_m": 2.8,
+  "clips": {
+    "idle_blink": {
+      "loop": true,
+      "duration_s": 4.0,
+      "nodes": [
+        "eyeL",
+        "eyeR"
+      ]
+    },
+    "idle_breathe": {
+      "loop": true,
+      "duration_s": 2.4,
+      "nodes": [
+        "torso"
+      ]
+    },
+    "idle_headturn": {
+      "loop": true,
+      "duration_s": 6.0,
+      "nodes": [
+        "head"
+      ]
+    },
+    "idle_fidget": {
+      "loop": true,
+      "duration_s": 3.2,
+      "nodes": [
+        "armR",
+        "hips"
+      ]
+    },
+    "thinking": {
+      "loop": true,
+      "duration_s": 4.0,
+      "nodes": [
+        "head",
+        "armR",
+        "torso"
+      ]
+    },
+    "working": {
+      "loop": true,
+      "duration_s": 1.2,
+      "nodes": [
+        "torso",
+        "armL",
+        "armR"
+      ]
+    },
+    "typing": {
+      "loop": true,
+      "duration_s": 0.5,
+      "nodes": [
+        "torso",
+        "armL",
+        "armR"
+      ]
+    },
+    "done": {
+      "loop": false,
+      "duration_s": 1.2,
+      "nodes": [
+        "root",
+        "armL",
+        "armR",
+        "head"
+      ]
+    },
+    "stuck": {
+      "loop": false,
+      "duration_s": 2.0,
+      "nodes": [
+        "head",
+        "torso",
+        "armL",
+        "armR"
+      ]
+    },
+    "wander": {
+      "loop": true,
+      "duration_s": 1.0,
+      "nodes": [
+        "legL",
+        "legR",
+        "armL",
+        "armR",
+        "root"
+      ]
+    },
+    "stretch": {
+      "loop": false,
+      "duration_s": 2.5,
+      "nodes": [
+        "armL",
+        "armR",
+        "torso"
+      ]
+    },
+    "coffee_run": {
+      "loop": true,
+      "duration_s": 1.2,
+      "nodes": [
+        "legL",
+        "legR",
+        "armL",
+        "armR",
+        "root"
+      ]
+    }
+  }
+}
