@@ -106,7 +106,7 @@ function measureHeight(obj) {
 // Pastel-on-pastel: desk/avatar edges blend into floor/walls at 390px.
 // Subtle dark rim on desk tops + dark inverted-hull outline on avatars,
 // DAY mode only (opacity scales with daylight; fully off at night).
-// Back-wall board is intentionally untouched (separate card if still a smear).
+// Back-wall board is handled by applyBoardContrast below (t_258e9819).
 const dayEdgeMats = []; // { mat, dayOpacity }
 function addDeskEdges(root) {
   const mat = new THREE.LineBasicMaterial({ color: 0x4a3526, transparent: true, opacity: 0 });
@@ -134,12 +134,46 @@ function updateDayEdges() {
   for (const o of dayEdgeMats) o.mat.opacity = o.dayOpacity * d;
 }
 
+// ================= board contrast (QA gate t_258e9819) =================
+// At 390x844 day the 5 pastel column tabs smear into the gray board panel
+// (baseline: 1.13-1.41:1 contrast vs panel; col_3 undetectable).
+// NOTE: the panel is pinned at ~mid-gray (L~0.21) by ACES Filmic tone-mapping
+// (exposure 1.05) — even a pure-black board_bg renders ~L 0.21 — so panel
+// darkening is a weak lever. The effective lever is boosting column
+// saturation/value (hue identity kept). Result: all 5 columns 1.33-1.70:1,
+// discrete. board_bg is still darkened day-aware (night keeps the original
+// slate so the board doesn't go black when the desk lamps take over).
+// Values below are sRGB; setRGB(..., SRGBColorSpace) converts to the linear
+// working space (three r160 color management) to match the GLB's sRGB
+// baseColorFactors in the same space.
+const srgb = (r, g, b) => new THREE.Color().setRGB(r, g, b, THREE.SRGBColorSpace);
+const BOARD_BG_NIGHT = srgb(0.227, 0.247, 0.294); // original slate (GLB base)
+const BOARD_BG_DAY = srgb(0.09, 0.10, 0.13);     // deep slate (ACES lifts it to ~mid-gray)
+const COL_COLORS = {
+  col_0: srgb(0.95, 0.76, 0.20),  // amber (was 0.91,0.725,0.239)
+  col_1: srgb(0.95, 0.95, 0.97),  // light-gray -> crisp off-white
+  col_2: srgb(0.35, 0.68, 1.00),  // pale blue -> bright blue (higher value)
+  col_3: srgb(1.00, 0.55, 0.55),  // red -> bright salmon (higher value)
+  col_4: srgb(0.45, 0.85, 0.30)   // pale green -> stronger green
+};
+let boardBgMat = null;
+function applyBoardContrast(root) {
+  const seen = new Set();
+  root.traverse(o => {
+    if (!o.isMesh || !o.material || seen.has(o.material.name)) return;
+    const n = o.material.name;
+    if (n === 'board_bg') { seen.add(n); boardBgMat = o.material; }
+    else if (COL_COLORS[n]) { seen.add(n); o.material.color.copy(COL_COLORS[n]); }
+  });
+}
+
 async function loadAssets() {
   // environment (room, desks, wall board, window, clock, plant)
   const env = await loader.loadAsync('/assets/office3d/environment.glb');
   env.scene.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
   scene.add(env.scene);
   addDeskEdges(env.scene);
+  applyBoardContrast(env.scene);
   // capture desk-lamp world positions (desk_0..desk_5 each have a desk_lamp child)
   const lampPos = [];
   for (let i = 0; i < 6; i++) {
@@ -252,6 +286,7 @@ function applyLighting() {
     av.lamp.color.copy(av.color);
   }
   updateDayEdges();
+  if (boardBgMat) boardBgMat.color.copy(BOARD_BG_NIGHT).lerp(BOARD_BG_DAY, st.daylight);
 }
 
 async function fetchState() {
