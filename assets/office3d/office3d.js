@@ -109,6 +109,16 @@ function measureHeight(obj) {
   const box = new THREE.Box3().setFromObject(obj);
   return { min: box.min.clone(), max: box.max.clone(), h: box.max.y - box.min.y };
 }
+// desk_0's lamp child is named 'desk_lamp'; desks 1-5 are 'desk_lamp_1'..'_5'.
+// getObjectByName('desk_lamp') only matches desk_0, so match by prefix instead.
+function findLampNode(desk) {
+  if (!desk) return null;
+  for (let c = 0; c < desk.children.length; c++) {
+    const nm = desk.children[c].name || '';
+    if (nm.indexOf('desk_lamp') === 0) return desk.children[c];
+  }
+  return null;
+}
 
 // ================= contrast / outline fixes (asset-side, QA gate t_de12c231) =================
 // Root cause: flat pastel PBR colors + ACES tone mapping wash the board columns and
@@ -157,11 +167,12 @@ async function loadAssets() {
   scene.add(env.scene);
   applyBoardContrast(env.scene);
   addDeskOutlines(env.scene);
-  // capture desk-lamp world positions (desk_0..desk_5 each have a desk_lamp child)
+  // capture desk-lamp world positions (desk_0..desk_5 each have a desk_lamp child;
+  // names are 'desk_lamp' / 'desk_lamp_1'..'_5' — matched by prefix, not exact name)
   const lampPos = [];
   for (let i = 0; i < 6; i++) {
     const desk = env.scene.getObjectByName('desk_' + i);
-    const lamp = desk ? desk.getObjectByName('desk_lamp') : null;
+    const lamp = findLampNode(desk);
     if (lamp) { lamp.getWorldPosition(_v1); lampPos.push(_v1.clone()); }
     else lampPos.push(new THREE.Vector3(DESK_XZ[i][0], 0.95, DESK_XZ[i][1] - 0.15));
   }
@@ -187,8 +198,19 @@ async function loadAssets() {
     scene.add(glow);
     const lamp = new THREE.PointLight(new THREE.Color().setHex(accentHex(name)), 0.0, 4.5, 2);
     lamp.position.copy(lampPos[i]); scene.add(lamp);
+    // lamp head emissive (t_4e215b38): the 'shade' primitive is ONE shared material
+    // (mat[6]) across all 6 desks, so clone it per desk and drive its emissive by
+    // state — the lamp HEAD carries the state color (not a detached floor pool).
+    // toneMapped:false keeps the SOT state color crisp (same wash fix as t_c15ff62e).
+    let headMat = null;
+    const lampNode = findLampNode(env.scene.getObjectByName('desk_' + i));
+    if (lampNode) lampNode.traverse(o => {
+      if (o.isMesh && o.material && o.material.name === 'shade' && !headMat) {
+        headMat = o.material.clone(); headMat.toneMapped = false; o.material = headMat;
+      }
+    });
     avatars[name] = {
-      root, armL, armR, head, lamp, glow, glowMat,
+      root, armL, armR, head, lamp, glow, glowMat, headMat,
       state: 'idle', color: new THREE.Color().setHex(accentHex(name)),
       card: '', card_id: null, card_state: null, tool_label: null,
       stream: [], pose: { aL: 0, aR: 0, h: 0 }, baseY: root.position.y,
@@ -276,6 +298,15 @@ function applyLighting() {
     av._lampBase = (active ? 2.2 : 0.0) + st.glow * (active ? 0.4 : 0.7);
     av.lamp.intensity = av._lampBase;
     av.lamp.color.copy(av.color);
+    av.glowMat.color.copy(av.color);
+    // lamp head emissive carries the state color (t_4e215b38): active = bright
+    // profile accent, idle = off (the PointLight provides the warm ambient).
+    // Bound here so head + lamp + floor pool stay in sync on every path.
+    if (av.headMat) {
+      av._headBase = (active ? 1.7 : 0.0) + st.glow * (active ? 0.35 : 0.0);
+      av.headMat.emissiveIntensity = av._headBase;
+      av.headMat.emissive.copy(av.color);
+    }
   }
   updateOutlineOpacity();
 }
@@ -491,8 +522,8 @@ function animate() {
     // idle/thinking bob
     if (av.state === 'idle' || av.state === 'thinking') av.root.position.y = av.baseY + Math.sin(t * 1.3 + n.length * 0.7) * 0.012;
     else av.root.position.y = av.baseY;
-    // glow disc: steady for active states + decaying 'done' flash (profile-colored)
-    av.glowMat.opacity = (ACTIVE.includes(av.state) ? 0.55 : 0.0) + doneFlash * 0.55;
+    // glow disc: subtle floor pool (the lamp HEAD carries the state, t_4e215b38)
+    av.glowMat.opacity = (ACTIVE.includes(av.state) ? 0.28 : 0.0) + doneFlash * 0.4;
   }
   // day/night lighting: recompute only when the quantized state changes (cheap)
   const st = sceneState();
@@ -502,6 +533,7 @@ function animate() {
   for (const n of AGENT_ORDER) {
     const av = avatars[n]; if (!av) continue;
     av.lamp.intensity = (av._lampBase || 0) + (av._doneFlash || 0) * 1.9;
+    if (av.headMat) av.headMat.emissiveIntensity = (av._headBase || 0) + (av._doneFlash || 0) * 1.6;
   }
   updateLabels();
   renderer.render(scene, camera);
