@@ -10,7 +10,7 @@ const AUTH = {}; if (TOKEN) AUTH['Authorization'] = 'Bearer ' + TOKEN;
 const DESK = { cols: 3, rows: 2, top_px: 47, cell_px: [64, 60], px_to_m: 0.05 };
 const ORDER = ['todo', 'ready', 'running', 'blocked', 'done'];
 const COLHEAD = { todo: 'Todo', ready: 'Ready', running: 'Running', blocked: 'Blocked', done: 'Done' };
-const LABELS = { idle: 'Idle', thinking: 'Thinking', working: 'Working', typing: 'Typing', stuck: 'Stuck' };
+const LABELS = { idle: 'Idle', thinking: 'Thinking', working: 'Working', typing: 'Typing', stuck: 'Stuck', done: 'Done' };
 const ACCENTS = {
   'product-owner': [232, 185, 61], 'pixel-art-designer': [224, 93, 93], 'ux-ui': [93, 184, 224],
   'software-engineer': [126, 201, 111], 'qa-visual': [201, 143, 224], 'qa-journey': [224, 154, 93]
@@ -154,9 +154,13 @@ const POSE = {
   thinking: { aL: 0.0,  aR: -1.05, h: -0.15 },
   working:  { aL: -0.55, aR: -0.55, h: 0.0 },
   typing:   { aL: -0.7,  aR: -0.7,  h: 0.05 },
-  stuck:    { aL: 0.4,  aR: 0.4,  h: 0.32 }
+  stuck:    { aL: 0.4,  aR: 0.4,  h: 0.32 },
+  done:     { aL: -0.15, aR: -0.15, h: -0.08 }
 };
 const ACTIVE = ['thinking', 'working', 'typing', 'stuck'];
+// 'done' is transient (server holds it OFFICE_DONE_MS=600ms after a turn posts):
+// a short lamp/glow flash matching the 2D done-flash, NOT a persistent active lamp.
+const DONE_FLASH_MS = 600;
 const state = { roundActive: false, board: {} };
 
 function anyActive() { return AGENT_ORDER.some(n => avatars[n] && ACTIVE.includes(avatars[n].state)); }
@@ -185,13 +189,17 @@ function applyState(s) {
   state.board = s.board || {};
   for (const a of s.agents) {
     const av = avatars[a.id]; if (!av) continue;
+    const prev = av.state;
     av.state = a.state;
     if (a.color) av.color.set(a.color);
     av.card = a.card_title || a.card_id || '';
     av.card_id = a.card_id; av.card_state = a.card_state; av.tool_label = a.tool_label;
     av.elapsed_ms = a.elapsed_ms;
     av.pose = POSE[a.state] || POSE.idle;
-    // glow disc: profile-colored, on when active
+    // 'done' transition: stamp the flash start (render loop decays it over DONE_FLASH_MS)
+    if (a.state === 'done' && prev !== 'done') av.doneAt = Date.now();
+    if (a.state !== 'done') av.doneAt = 0;
+    // glow disc: profile-colored, on when active (done flash added per-frame in animate)
     av.glowMat.color.set(a.color || '#888');
     av.glowMat.opacity = ACTIVE.includes(a.state) ? 0.55 : 0.0;
   }
@@ -214,7 +222,8 @@ function applyLighting() {
     const av = avatars[n]; if (!av) continue;
     const active = ACTIVE.includes(av.state);
     // active lamps bright; idle lamps ride the night glow (auto-on at dusk)
-    av.lamp.intensity = (active ? 2.2 : 0.0) + st.glow * (active ? 0.4 : 0.7);
+    av._lampBase = (active ? 2.2 : 0.0) + st.glow * (active ? 0.4 : 0.7);
+    av.lamp.intensity = av._lampBase;
     av.lamp.color.copy(av.color);
   }
 }
@@ -378,8 +387,17 @@ let lastLightKey = '';
 function animate() {
   requestAnimationFrame(animate);
   const t = performance.now() * 0.001;
+  const nowMs = Date.now();
   for (const n of AGENT_ORDER) {
     const av = avatars[n]; if (!av) continue;
+    // 'done' transient flash: decay over DONE_FLASH_MS, then expire to idle locally
+    let doneFlash = 0;
+    if (av.state === 'done' && av.doneAt) {
+      const el = nowMs - av.doneAt;
+      if (el < DONE_FLASH_MS) doneFlash = 1 - el / DONE_FLASH_MS;
+      else { av.state = 'idle'; av.pose = POSE.idle; av.doneAt = 0; }
+    }
+    av._doneFlash = doneFlash;
     // smooth pose toward target (arm/head rotations about X)
     av._aL += (av.pose.aL - av._aL) * 0.14;
     av._aR += (av.pose.aR - av._aR) * 0.14;
@@ -390,11 +408,18 @@ function animate() {
     // idle/thinking bob
     if (av.state === 'idle' || av.state === 'thinking') av.root.position.y = av.baseY + Math.sin(t * 1.3 + n.length * 0.7) * 0.012;
     else av.root.position.y = av.baseY;
+    // glow disc: steady for active states + decaying 'done' flash (profile-colored)
+    av.glowMat.opacity = (ACTIVE.includes(av.state) ? 0.55 : 0.0) + doneFlash * 0.55;
   }
   // day/night lighting: recompute only when the quantized state changes (cheap)
   const st = sceneState();
   const key = Math.round(st.tint.r) + ',' + Math.round(st.tint.g) + ',' + Math.round(st.tint.b) + ',' + Math.round(st.glow * 100) + ',' + Math.round(st.daylight * 100);
   if (key !== lastLightKey) { lastLightKey = key; applyLighting(); }
+  // 'done' lamp pulse: decays with the flash, set (not added) so it never accumulates
+  for (const n of AGENT_ORDER) {
+    const av = avatars[n]; if (!av) continue;
+    av.lamp.intensity = (av._lampBase || 0) + (av._doneFlash || 0) * 1.9;
+  }
   updateLabels();
   renderer.render(scene, camera);
   if (!window.__RENDER_DONE && assetsLoaded) {
@@ -438,7 +463,7 @@ window.__O3D = {
     if (thetaDeg != null) sph.theta = thetaDeg * Math.PI / 180;
     updateCamera();
   },
-  forceState: function (id, st) { const a = avatars[id]; if (a) { a.state = st; a.pose = POSE[st] || POSE.idle; applyLighting(); } },
+  forceState: function (id, st) { const a = avatars[id]; if (a) { a.state = st; a.pose = POSE[st] || POSE.idle; a.doneAt = (st === 'done') ? Date.now() : 0; applyLighting(); } },
   forceHour: function (h) { _forceHour = h; },
   get ready() { return !!window.__RENDER_DONE; }
 };
