@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>env-visual-test</title>
+<style>html,body{margin:0;background:#1a1410}</style>
+<script src="./three.min.js"></script>
+<script src="./GLTFLoader.js"></script>
+</head>
+<body>
+<canvas id="c" width="1280" height="960"></canvas>
+<script>
+window.onerror = function (m) { document.title = "ERR " + m; };
+try {
+  var canvas = document.getElementById('c');
+  var renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+  renderer.setSize(1280, 960, false);
+  renderer.outputEncoding = THREE.sRGBEncoding;
+
+  var scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x241c14);
+
+  // camera at +Z looking -Z (SOT); high + steep so the full 2x3 grid fits
+  var camera = new THREE.PerspectiveCamera(60, 1280 / 960, 0.1, 100);
+  camera.position.set(4.8, 4.5, 11.0);
+  camera.lookAt(4.8, 1.0, 6.0);
+
+  // warm key + fill (cozy), kept mild so board colors read true
+  var key = new THREE.DirectionalLight(0xffd9a0, 1.0);
+  key.position.set(7.5, 6.0, 9.0);
+  scene.add(key);
+  var fill = new THREE.DirectionalLight(0xfff2e0, 0.4);
+  fill.position.set(1.0, 4.0, 8.0);
+  scene.add(fill);
+  scene.add(new THREE.AmbientLight(0xffe0b3, 0.55));
+
+  new THREE.GLTFLoader().load('../../assets/office3d/environment.glb',
+    function (gltf) {
+      scene.add(gltf.scene);
+      renderer.render(scene, camera);
+      document.title = 'RENDER_DONE';
+    },
+    undefined,
+    function (err) {
+      document.title = 'LOAD_FAIL ' + (err && err.message ? err.message : err);
+    });
+  setTimeout(function () {
+    if (document.title !== 'RENDER_DONE' &&
+        document.title.indexOf('LOAD_FAIL') !== 0) {
+      document.title = 'STILL_PENDING';
+    }
+  }, 8000);
+} catch (e) {
+  document.title = 'THROW ' + e.message;
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,52 @@
+{
+  "desks": {
+    "agents": [
+      "product-owner",
+      "pixel-art-designer",
+      "ux-ui",
+      "software-engineer",
+      "qa-visual",
+      "qa-journey"
+    ],
+    "anchor_px": {
+      "pixel-art-designer": [
+        96,
+        61
+      ],
+      "product-owner": [
+        32,
+        61
+      ],
+      "qa-journey": [
+        160,
+        121
+      ],
+      "qa-visual": [
+        96,
+        121
+      ],
+      "software-engineer": [
+        32,
+        121
+      ],
+      "ux-ui": [
+        160,
+        61
+      ]
+    },
+    "cell_px": [
+      64,
+      60
+    ],
+    "cols": 3,
+    "rows": 2,
+    "top_px": 47
+  },
+  "px_to_m": 0.05,
+  "room_px": [
+    192,
+    168
+  ],
+  "version": 1,
+  "wall_h_m": 2.8
+}
