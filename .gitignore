@@ -24,3 +24,6 @@ __pycache__/
 
 # Backups
 *.bak*
+
+# 3D office build output (never committed)
+build/

@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Office 3D</title>
+<style>
+  :root{
+    --ink:#3a2c22; --ink-soft:#6b5a4c; --paper:#f4ead8; --paper-2:#efe2cc;
+    --wood:#b07a4a; --wood-2:#8a5a34; --line:#d8c6a8;
+    --gold:#e8b93d; --red:#e05d5d; --blue:#5db8e0; --green:#7ec96f;
+    --purple:#c98fe0; --orange:#e09a5d;
+    --panel:#fbf5e9; --panel-line:#e3d3b4;
+  }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; height:100%; background:#1a140e; overflow:hidden;
+    font-family:"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;
+    color:var(--ink); }
+  #gl{ position:fixed; inset:0; width:100%; height:100%; display:block; cursor:grab; }
+  #gl:active{ cursor:grabbing; }
+  #hud{ position:fixed; inset:0; pointer-events:none; }
+  #hud .interactive{ pointer-events:auto; }
+  #boardCounts{ position:absolute; top:12px; left:12px; display:flex; gap:6px; flex-wrap:wrap; max-width:60vw; }
+  .bc{ background:rgba(251,245,233,.92); border:1px solid var(--panel-line); border-radius:8px;
+    padding:4px 9px; font-size:12px; font-weight:600; color:var(--ink);
+    box-shadow:0 1px 3px rgba(0,0,0,.25); display:flex; align-items:center; gap:6px; }
+  .bc .n{ font-variant-numeric:tabular-nums; font-weight:700; }
+  .bc .dot{ width:8px; height:8px; border-radius:50%; display:inline-block; }
+  #labels{ position:absolute; inset:0; }
+  .lbl{ position:absolute; left:0; top:0; transform:translate(-50%,-100%);
+    background:rgba(251,245,233,.94); border:1px solid var(--panel-line); border-radius:9px;
+    padding:3px 8px; font-size:11px; font-weight:600; color:var(--ink); white-space:nowrap;
+    box-shadow:0 1px 4px rgba(0,0,0,.3); pointer-events:auto; cursor:pointer;
+    display:flex; align-items:center; gap:6px; transition:opacity .2s; }
+  .lbl .swatch{ width:9px; height:9px; border-radius:3px; flex:0 0 auto; }
+  .lbl .st{ font-weight:500; color:var(--ink-soft); font-size:10px; }
+  .lbl.active{ outline:2px solid var(--gold); }
+  .lbl .lamp{ width:7px; height:7px; border-radius:50%; background:#5a4a3a; flex:0 0 auto; }
+  .lbl .lamp.on{ box-shadow:0 0 6px 2px rgba(232,185,61,.7); }
+  #statusFooter{ position:absolute; left:0; right:0; bottom:0; display:flex;
+    align-items:center; gap:14px; padding:7px 14px;
+    background:linear-gradient(0deg, rgba(20,14,8,.82), rgba(20,14,8,0));
+    color:#f4ead8; font-size:12px; }
+  #statusFooter .clock{ font-variant-numeric:tabular-nums; font-weight:600; letter-spacing:.5px; }
+  #statusFooter .sep{ opacity:.4; }
+  #statusFooter .headline{ font-weight:600; }
+  #statusFooter .hint{ margin-left:auto; opacity:.55; font-size:11px; }
+  #drillPanel{ position:absolute; top:12px; right:12px; width:320px; max-height:calc(100% - 90px);
+    background:var(--panel); border:1px solid var(--panel-line); border-radius:12px;
+    box-shadow:0 6px 24px rgba(0,0,0,.35); display:none; flex-direction:column; overflow:hidden; }
+  #drillPanel.open{ display:flex; }
+  #drillHead{ display:flex; align-items:center; gap:8px; padding:10px 12px;
+    border-bottom:1px solid var(--panel-line); background:var(--paper-2); }
+  #drillHead .swatch{ width:12px; height:12px; border-radius:4px; flex:0 0 auto; }
+  #drillHead .name{ font-weight:700; font-size:13px; }
+  #drillHead .chip{ margin-left:auto; font-size:11px; font-weight:700; padding:2px 8px;
+    border-radius:20px; background:#fff; border:1px solid var(--panel-line); }
+  #drillClose{ cursor:pointer; border:none; background:transparent; font-size:16px;
+    color:var(--ink-soft); padding:0 4px; }
+  #drillBody{ padding:10px 12px; overflow-y:auto; font-size:12px; }
+  #drillBody .row{ display:flex; gap:8px; margin:6px 0; }
+  #drillBody .k{ color:var(--ink-soft); min-width:74px; flex:0 0 auto; }
+  #drillBody .v{ color:var(--ink); word-break:break-word; }
+  #drillBody .card{ background:#fff; border:1px solid var(--panel-line); border-radius:8px;
+    padding:8px; margin:8px 0; }
+  #drillBody .card .t{ font-weight:700; }
+  #drillBody .stream{ background:#241c14; color:#e8dcc4; border-radius:8px; padding:8px;
+    font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px; white-space:pre-wrap;
+    max-height:180px; overflow-y:auto; margin-top:8px; }
+  #drillBody .stream .h{ color:var(--gold); font-weight:700; display:block; margin-bottom:4px; }
+  #dbg{ position:absolute; left:12px; bottom:44px; font-family:ui-monospace,Menlo,monospace;
+    font-size:10px; color:#7fe0a0; background:rgba(0,0,0,.5); padding:4px 6px; border-radius:6px;
+    max-width:70vw; white-space:pre-wrap; pointer-events:none; }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="hud">
+  <div id="boardCounts" class="interactive"></div>
+  <div id="labels"></div>
+  <div id="statusFooter" class="interactive">
+    <span class="clock" id="sceneClock">☀ 12:00</span>
+    <span class="sep">·</span>
+    <span class="headline" id="statusHeadline">Office</span>
+    <span class="hint">drag to orbit · click an agent to drill in</span>
+  </div>
+  <div id="drillPanel" class="interactive">
+    <div id="drillHead">
+      <span class="swatch" id="drillSwatch"></span>
+      <span class="name" id="drillName"></span>
+      <span class="chip" id="drillChip"></span>
+      <button id="drillClose" title="close">×</button>
+    </div>
+    <div id="drillBody"></div>
+  </div>
+  <div id="dbg"></div>
+</div>
+<script type="importmap">
+{ "imports": { "three": "/assets/office3d/three.module.js" } }
+</script>
+<script type="module" src="/assets/office3d/office3d.js"></script>
+</body>
+</html>
