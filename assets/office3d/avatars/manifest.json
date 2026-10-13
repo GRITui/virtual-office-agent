@@ -1,0 +1,80 @@
+{
+  "version": 1,
+  "px_to_m": 0.05,
+  "rig": [
+    "root",
+    "hips",
+    "torso",
+    "head",
+    "eyeL",
+    "eyeR",
+    "armL",
+    "armR",
+    "legL",
+    "legR",
+    "prop",
+    "hat"
+  ],
+  "avatars": {
+    "product-owner": {
+      "file": "product-owner.glb",
+      "height_m": 1.15,
+      "facing": "+Z",
+      "color": "#e8b93d",
+      "anchor_px": [
+        32,
+        61
+      ]
+    },
+    "pixel-art-designer": {
+      "file": "pixel-art-designer.glb",
+      "height_m": 1.15,
+      "facing": "+Z",
+      "color": "#e05d5d",
+      "anchor_px": [
+        96,
+        61
+      ]
+    },
+    "ux-ui": {
+      "file": "ux-ui.glb",
+      "height_m": 1.15,
+      "facing": "+Z",
+      "color": "#5db8e0",
+      "anchor_px": [
+        160,
+        61
+      ]
+    },
+    "software-engineer": {
+      "file": "software-engineer.glb",
+      "height_m": 1.15,
+      "facing": "+Z",
+      "color": "#7ec96f",
+      "anchor_px": [
+        32,
+        121
+      ]
+    },
+    "qa-visual": {
+      "file": "qa-visual.glb",
+      "height_m": 1.15,
+      "facing": "+Z",
+      "color": "#c98fe0",
+      "anchor_px": [
+        96,
+        121
+      ]
+    },
+    "qa-journey": {
+      "file": "qa-journey.glb",
+      "height_m": 1.15,
+      "facing": "+Z",
+      "color": "#e09a5d",
+      "anchor_px": [
+        160,
+        121
+      ]
+    }
+  }
+}
