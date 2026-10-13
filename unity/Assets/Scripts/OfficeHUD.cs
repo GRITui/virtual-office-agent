@@ -38,6 +38,7 @@ public class OfficeHUD : MonoBehaviour
 
     Canvas canvas;
     Camera cam;
+    DrillPanel drill;
     readonly Label[] labels = new Label[6];
     readonly BoardCol[] cols = new BoardCol[5];
     Text footerStatus, footerClock, sceneClock;
@@ -46,7 +47,7 @@ public class OfficeHUD : MonoBehaviour
     float pollTimer;
     const float POLL_S = 2f;
 
-    static Color Hex(string h)
+    public static Color Hex(string h)
     {
         return new Color(byte.Parse(h.Substring(1, 2), System.Globalization.NumberStyles.HexNumber) / 255f,
                          byte.Parse(h.Substring(3, 2), System.Globalization.NumberStyles.HexNumber) / 255f,
@@ -71,6 +72,8 @@ public class OfficeHUD : MonoBehaviour
         BuildLabels();
         BuildBoardCounts();
         BuildFooter();
+        var dgo = new GameObject("DrillPanel");
+        drill = dgo.AddComponent<DrillPanel>();
         pollTimer = -1f; // fetch immediately
     }
 
@@ -78,7 +81,25 @@ public class OfficeHUD : MonoBehaviour
     {
         pollTimer += Time.deltaTime;
         if (pollTimer >= POLL_S) { pollTimer = 0f; StartCoroutine(PollOfficeState()); }
+        if (Input.GetKeyDown(KeyCode.Escape) && drill != null && drill.IsOpen) drill.Close();
         UpdateLabelPositions();
+    }
+
+    // ---------- drill-in ----------
+    public void OpenDrill(int i)
+    {
+        if (drill == null || last == null) return;
+        AgentDto a = null;
+        if (last.agents != null)
+            foreach (var x in last.agents) if (x.id == PROFILES[i]) { a = x; break; }
+        drill.OpenAgent(PROFILES[i], a, last);
+    }
+
+    public void CloseDrill() { if (drill != null) drill.Close(); }
+
+    public void PushStreamLine(string profile, string kind, string text, long tsMs)
+    {
+        if (drill != null) drill.PushStreamLine(profile, kind, text, tsMs);
     }
 
     // ---------- name labels ----------
@@ -100,6 +121,10 @@ public class OfficeHUD : MonoBehaviour
             var status = MakeText("status", "", 10, FontStyle.Normal, INK_DARK);
             status.rectTransform.SetParent(rt, false);
             Stretch(status.rectTransform, new Vector2(0, 0), new Vector2(0, 0), new Vector2(0, -12));
+            var btn = go.AddComponent<Button>();
+            btn.targetGraphic = img;
+            int idx = i;
+            btn.onClick.AddListener(() => OpenDrill(idx));
             labels[i] = new Label { rt = rt, name = name, status = status, baseColor = PROFILE_COLORS[i], seat = i };
         }
     }
@@ -119,9 +144,10 @@ public class OfficeHUD : MonoBehaviour
         if (cam == null) return;
         for (int i = 0; i < 6; i++)
         {
+            bool openHere = drill != null && drill.IsOpen && drill.OpenProfile == PROFILES[i];
             var p = cam.WorldToScreenPoint(AnchorFor(i));
             bool behind = p.z < 0f;
-            labels[i].rt.gameObject.SetActive(!behind);
+            labels[i].rt.gameObject.SetActive(!behind && !openHere);
             if (behind) continue;
             var pos = new Vector2(p.x, p.y);
             // CanvasScaler 0.5: convert screen px -> canvas units
@@ -260,6 +286,7 @@ public class OfficeHUD : MonoBehaviour
                 if (idx < 0) continue;
                 labels[idx].status.text = StateText(a, dto);
                 if (!string.IsNullOrEmpty(a.state) && a.state != "idle") active.Add(a);
+                if (drill != null && drill.IsOpen && drill.OpenProfile == a.id) drill.Refresh(a, dto);
             }
         // footer headline (ported from office.html render())
         footerDot.color = active.Count > 0 ? GOOD : DIM;
@@ -301,6 +328,18 @@ public class OfficeHUD : MonoBehaviour
         return Math.Max(0, ms / 1000) + "s";
     }
 
+    public static string FmtAgo(long tsMs, long nowMs)
+    {
+        if (tsMs <= 0) return "—";
+        long s = Math.Max(0, (nowMs - tsMs) / 1000);
+        if (s < 60) return s + "s ago";
+        long m = s / 60;
+        if (m < 60) return m + "m ago";
+        long h = m / 60;
+        if (h < 24) return h + "h ago";
+        return (h / 24) + "d ago";
+    }
+
     public static string SceneClockText(long nowMs)
     {
         // 1 real hour = 1 scene day (office.html DAY_MS)
@@ -321,6 +360,7 @@ public class OfficeHUD : MonoBehaviour
     }
 
     // ---------- test / integration accessors ----------
+    public DrillPanel Drill => drill;
     public int LabelCount => labels.Length;
     public string GetLabelStatus(int i) => labels[i].status.text;
     public bool LabelVisible(int i) => labels[i].rt.gameObject.activeSelf;
@@ -331,6 +371,25 @@ public class OfficeHUD : MonoBehaviour
     public string SceneClockNow => sceneClock.text;
 
     // ---------- helpers ----------
+    public static Text MakeTextPublic(string name, string text, int size, FontStyle style, Color color) => MakeText(name, text, size, style, color);
+    public static Image MakeImagePublic(string name, Color color) => MakeImage(name, color);
+
+    public static Button MakeButtonPublic(string name, string text, int size, Color color, UnityEngine.Events.UnityAction onClick)
+    {
+        var go = new GameObject(name);
+        var rt = (RectTransform)go.AddComponent<RectTransform>();
+        var b = go.AddComponent<Button>();
+        b.targetGraphic = go.AddComponent<Image>();
+        b.onClick.AddListener(onClick);
+        var t = MakeText("txt", text, size, FontStyle.Bold, color);
+        t.rectTransform.SetParent(rt, false);
+        t.rectTransform.anchorMin = Vector2.zero;
+        t.rectTransform.anchorMax = Vector2.one;
+        t.rectTransform.offsetMin = Vector3.zero;
+        t.rectTransform.offsetMax = Vector3.zero;
+        return b;
+    }
+
     static Text MakeText(string name, string text, int size, FontStyle style, Color color)
     {
         var go = new GameObject(name);

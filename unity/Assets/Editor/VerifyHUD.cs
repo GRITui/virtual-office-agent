@@ -45,7 +45,8 @@ public static class VerifyHUD
                 new OfficeHUD.AgentDto { id = "software-engineer", state = "working", seat = 3,
                     tool_label = "Read office.html (lines 260-280)", elapsed_ms = 42000, last_delta_ms = now - 1000 },
                 new OfficeHUD.AgentDto { id = "qa-visual", state = "working", seat = 4,
-                    elapsed_ms = 24000, last_delta_ms = now - 24263 },
+                    elapsed_ms = 24000, last_delta_ms = now - 24263,
+                    card_id = "t_4b7651ed", card_title = "3D avatars: 6 chunky low-poly GLB avatars", card_state = "running" },
                 new OfficeHUD.AgentDto { id = "qa-journey", state = "idle", seat = 5 },
             }
         };
@@ -63,6 +64,24 @@ public static class VerifyHUD
         Check(lines, ref fails, "footer.headline", hud.FooterText == "2 agents active · qa-visual · stuck? · 24s", hud.FooterText);
         Check(lines, ref fails, "footer.dotLive", hud.FooterDotColor == new Color(126f / 255f, 201f / 255f, 111f / 255f), hud.FooterDotColor.ToString());
         Check(lines, ref fails, "sceneClock", hud.SceneClockNow == "day 16:09", hud.SceneClockNow);
+
+        // ---- drill panel (part 2) ----
+        hud.OpenDrill(4); // qa-visual: stuck, has card
+        Check(lines, ref fails, "drill.open", hud.Drill.IsOpen && hud.Drill.OpenProfile == "qa-visual", hud.Drill.OpenProfile);
+        Check(lines, ref fails, "drill.visible", hud.Drill.PanelVisible, hud.Drill.PanelVisible.ToString());
+        Check(lines, ref fails, "drill.title", hud.Drill.TitleText == "qa-visual", hud.Drill.TitleText);
+        Check(lines, ref fails, "drill.chip", hud.Drill.ChipText == "stuck?", hud.Drill.ChipText);
+        Check(lines, ref fails, "drill.state", hud.Drill.KvStateText == "stuck?", hud.Drill.KvStateText);
+        Check(lines, ref fails, "drill.card", hud.Drill.KvCardText == "3D avatars: 6 chunky low-poly GLB avatars", hud.Drill.KvCardText);
+        Check(lines, ref fails, "drill.cardStatus", hud.Drill.KvCardStatusText == "running", hud.Drill.KvCardStatusText);
+        Check(lines, ref fails, "drill.stuckSection", hud.Drill.StuckSectionVisible && hud.Drill.StuckBodyText.Contains("24s"), hud.Drill.StuckBodyText);
+        Check(lines, ref fails, "drill.streamEmpty", hud.Drill.StreamEmptyVisible, hud.Drill.StreamEmptyVisible.ToString());
+        hud.PushStreamLine("qa-visual", "tool", "Read office.html (lines 260-280)", now - 20000);
+        hud.PushStreamLine("qa-visual", "reasoning", "checking the DESK constant", now - 5000);
+        Check(lines, ref fails, "drill.streamLine", hud.Drill.FirstStreamLine.Contains("reasoning") && hud.Drill.FirstStreamLine.Contains("checking the DESK constant"), hud.Drill.FirstStreamLine);
+        Check(lines, ref fails, "drill.streamNoEmpty", !hud.Drill.StreamEmptyVisible, hud.Drill.StreamEmptyVisible.ToString());
+        hud.CloseDrill();
+        Check(lines, ref fails, "drill.closed", !hud.Drill.IsOpen && !hud.Drill.PanelVisible, hud.Drill.PanelVisible.ToString());
 
         // idle round: footer falls back
         var idle = new OfficeHUD.OfficeStateDto
