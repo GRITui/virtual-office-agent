@@ -10,7 +10,7 @@ Coordinate SOT (set by lead, do not re-litigate): right-handed Y-up; 192x168 px 
 - Desk props per cell (px offsets from cell origin): lamp (10,24) -> named transform Lamp_<profile>; mug (16,28); laptop on desktop.
 - Avatar anchor per profile: cell origin + (32,14) px -> (x3, 0, z3); root at floor, facing +Z.
 - Wall kanban board (pixel env card builds geometry; placement here): back wall, centered on desks. 2D board spans x 36..157 px -> x 1.8..7.85 m (width 6.05 m); mounted y 1.9..3.3 m (above avatar heads ~1.8 m), z 0.06 (off the wall). 5 columns [todo, ready, running, blocked, done], headers colored per COLHEAD (todo #e8b93d, ready #8b93a3, running #5db8e0, blocked #e05d5d, done #7ec96f), labels TODO/RDY/RUN/BLK/DONE, up to 3 card bars per column (rgb(48,55,68)).
-- Name labels: UI Canvas (section 2), NOT 3D billboards — projected from anchor at y 1.85 m.
+- Name labels: UI Canvas (section 2), NOT 3D billboards — projected from anchor at y 1.5 m (0.35 m above the 1.15 m avatar head, per avatars/manifest.json height_m).
 
 ## 2. Camera framing
 - Orbit target "RoomCenter": (4.8, 1.0, 4.2) (room center, desk height).

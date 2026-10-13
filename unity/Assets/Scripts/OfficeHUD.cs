@@ -131,11 +131,13 @@ public class OfficeHUD : MonoBehaviour
 
     Vector3 AnchorFor(int i)
     {
+        // label 0.35 m above the avatar head (avatar height_m = 1.15 per avatars/manifest.json)
+        const float LABEL_Y = 1.5f;
         var av = GameObject.Find("Avatar_" + PROFILES[i]);
-        if (av != null) return new Vector3(av.transform.position.x, 1.85f, av.transform.position.z);
+        if (av != null) return new Vector3(av.transform.position.x, LABEL_Y, av.transform.position.z);
         float x = (i % 3) * 3.2f + 1.6f;          // cell origin + (32,14)px @ 0.05 m/px
         float z = 2.35f + (i / 3) * 3.0f + 0.7f;
-        return new Vector3(x, 1.85f, z);
+        return new Vector3(x, LABEL_Y, z);
     }
 
     void UpdateLabelPositions()
