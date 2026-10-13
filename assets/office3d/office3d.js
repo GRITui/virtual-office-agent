@@ -278,7 +278,14 @@ function buildLabels() {
   }
 }
 const _pv = new THREE.Vector3();
+// short names for narrow viewports (full name in title + drill panel)
+const SHORT_NAME = {
+  'product-owner': 'PO', 'pixel-art-designer': 'PAD', 'ux-ui': 'UX',
+  'software-engineer': 'SE', 'qa-visual': 'QA-V', 'qa-journey': 'QA-J'
+};
+const _pos = {}; // n -> {x, y, w, h, behind, lift}
 function updateLabels() {
+  const narrow = innerWidth <= 520;
   for (const n of AGENT_ORDER) {
     const av = avatars[n], el = labelEls[n]; if (!av || !el) continue;
     _pv.copy(av.anchor3).project(camera);
@@ -287,16 +294,34 @@ function updateLabels() {
     // keep the pill within the viewport (it is centered on x via translate(-50%))
     const w = el.offsetWidth || 120;
     const x = clamp(x0, w / 2 + 4, innerWidth - w / 2 - 4);
-    el.style.transform = 'translate(-50%,-100%) translate(' + x.toFixed(1) + 'px,' + y.toFixed(1) + 'px)';
-    el.style.opacity = behind ? '0' : '1';
-    el.style.display = behind ? 'none' : 'flex';
+    _pos[n] = { x, y, w, h: el.offsetHeight || 20, behind, lift: 0 };
     const active = ACTIVE.includes(av.state);
     el.querySelector('.swatch').style.background = '#' + av.color.getHexString();
-    el.querySelector('.nm').textContent = n;
+    el.querySelector('.nm').textContent = narrow ? (SHORT_NAME[n] || n) : n;
+    el.title = n;
     el.querySelector('.st').textContent = LABELS[av.state] || av.state;
     el.querySelector('.lamp').className = 'lamp' + (active ? ' on' : '');
     el.querySelector('.lamp').style.background = active ? '#' + av.color.getHexString() : '';
     el.classList.toggle('active', drill.open && drill.id === n);
+  }
+  // collision avoidance: lift pills that overlap horizontally (crowded rows)
+  const vis = AGENT_ORDER.filter(n => _pos[n] && !_pos[n].behind);
+  vis.sort((a, b) => _pos[a].x - _pos[b].x);
+  for (let i = 1; i < vis.length; i++) {
+    const p = _pos[vis[i]];
+    for (let j = 0; j < i; j++) {
+      const q = _pos[vis[j]];
+      if (p.x - p.w / 2 >= q.x + q.w / 2 - 4) continue;        // no horizontal overlap
+      if (Math.abs(p.y - q.y) >= Math.max(p.h, q.h)) continue; // no vertical overlap
+      p.lift = Math.max(p.lift, (p.y - p.h) - (q.y - q.h) + 6); // sit above q with 6px gap
+    }
+  }
+  for (const n of AGENT_ORDER) {
+    const p = _pos[n], el = labelEls[n]; if (!p || !el) continue;
+    const lift = Math.min(p.lift, Math.max(0, p.y - p.h - 2)); // never above viewport top
+    el.style.transform = 'translate(-50%,-100%) translate(' + p.x.toFixed(1) + 'px,' + (p.y - lift).toFixed(1) + 'px)';
+    el.style.opacity = p.behind ? '0' : '1';
+    el.style.display = p.behind ? 'none' : 'flex';
   }
 }
 
@@ -332,7 +357,11 @@ function renderPanel() {
 }
 
 // ---- status footer + scene clock ----
+const hintEl = document.querySelector('#statusFooter .hint');
+const HINT_FULL = 'drag to orbit \u00b7 click an agent to drill in';
+const HINT_SHORT = 'drag to orbit \u00b7 tap to drill'; // narrow viewports: one line
 function updateSceneClock() {
+  hintEl.textContent = innerWidth <= 520 ? HINT_SHORT : HINT_FULL;
   const st = sceneState();
   const h = Math.floor(st.hour), m = Math.floor((st.hour % 1) * 60);
   const icon = st.darkness > 0.5 ? '\u263D' : '\u2600';
