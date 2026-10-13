@@ -1,0 +1,11 @@
+# Unity project — ignore generated dirs (t_9af2fada / t_34b001b1)
+/Library/
+/Temp/
+/Logs/
+/obj/
+/Build/
+/Builds/
+/UserSettings/
+/Recordings/
+/MemoryCaptures/
+/verify_*_result.json
