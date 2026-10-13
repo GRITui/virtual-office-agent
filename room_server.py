@@ -765,12 +765,28 @@ class Room:
                     else:
                         state, idle_since = "idle", done_at
                 else:
-                    state = ("stuck"
-                             if last is not None and (now - last) > OFFICE_STUCK_MS
-                             else raw)
-                    # Only round-end idle entries carry a server-side
-                    # idle_since; active entries are null by definition.
-                    idle_since = t.get("idle_since") if raw == "idle" else None
+                    # Active states (thinking/working/typing) + round-end
+                    # idle. Two gates before "stuck" (t_f6904af5):
+                    #   (a) open turn — only a card-backed turn can be
+                    #       "stuck working". A turn with no card + no delta
+                    #       past the threshold is stale/abandoned, so it is
+                    #       reaped to idle (idle_since = last activity), not
+                    #       flagged stuck.
+                    #   (b) no tool in flight — a long tool call
+                    #       (build/install/network) with no intermediate
+                    #       delta is healthy "working <tool>", not stuck;
+                    #       only flag stuck when tool_label is None.
+                    stale = last is not None and (now - last) > OFFICE_STUCK_MS
+                    if raw == "idle":
+                        # Round-end / posted idle: carry the server-side
+                        # idle_since (set at round done/stopped).
+                        state, idle_since = raw, t.get("idle_since")
+                    elif card_id is None:
+                        state = "idle" if stale else raw
+                        idle_since = last if stale else None
+                    else:
+                        state = "stuck" if (stale and tool_label is None) else raw
+                        idle_since = None
                 started = t.get("started_at")
                 elapsed = int(now - started) if started else 0
             task = task_by_id.get(card_id) if card_id else None

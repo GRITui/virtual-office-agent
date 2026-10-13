@@ -414,7 +414,38 @@ function renderPanel() {
     }).join('\n');
     html += '<div class="stream"><span class="h">live stream</span>' + lines + '</div>';
   }
-  document.getElementById('drillBody').innerHTML = html || '<div class="row"><span class="v" style="color:var(--ink-soft)">no active card</span></div>';
+  // Action row: an active agent (esp. stuck / no-card) must never open a
+  // dead-end panel. Stop un-sticks the turn; transcript/board give context —
+  // mirrors the 2D office's stuck escape hatch (t_f6904af5).
+  if (ACTIVE.includes(av.state)) {
+    html += '<div class="actions">' +
+      '<button id="stopAgent" class="act stop">Stop</button>' +
+      '<a class="act" href="/chat" target="_top">transcript</a>' +
+      '<a class="act" href="/board" target="_top">board</a>' +
+      '</div>';
+  }
+  const body = document.getElementById('drillBody');
+  body.innerHTML = html || '<div class="row"><span class="v" style="color:var(--ink-soft)">no active card</span></div>';
+  const stopBtn = document.getElementById('stopAgent');
+  if (stopBtn) stopBtn.addEventListener('click', () => stopAgent());
+}
+// Stop the current round (un-sticks a stuck / no-card turn). POST /stop is the
+// only stop endpoint; it no-ops (stopping:false) when no round is active.
+async function stopAgent() {
+  const btn = document.getElementById('stopAgent');
+  if (btn) { btn.disabled = true; btn.textContent = 'Stopping…'; }
+  try {
+    const r = await fetch('/stop', { method: 'POST', headers: AUTH });
+    let j = {}; try { j = await r.json(); } catch (e) { /* non-json */ }
+    if (!r.ok || !j.ok) throw 'HTTP ' + r.status;
+    dbg('stop: ' + (j.stopping ? 'round stopping' : 'no active round'));
+    // The office SSE event re-renders the panel on round-end; poll once as a
+    // fallback in case SSE is disconnected so the panel leaves the dead end.
+    setTimeout(fetchState, 300);
+  } catch (e) {
+    dbg('stop: ' + e);
+    if (btn) { btn.disabled = false; btn.textContent = 'Stop'; }
+  }
 }
 
 // ---- status footer + scene clock ----
