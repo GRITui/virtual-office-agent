@@ -120,13 +120,14 @@ function addDeskEdges(root) {
 function addAvatarOutline(root) {
   const mat = new THREE.MeshBasicMaterial({ color: 0x3a2a1e, side: THREE.BackSide, transparent: true, opacity: 0 });
   dayEdgeMats.push({ mat, dayOpacity: 0.85 });
-  root.traverse(o => {
-    if (o.isMesh) {
-      const shell = new THREE.Mesh(o.geometry, mat);
-      shell.scale.setScalar(1.04);
-      o.add(shell);
-    }
-  });
+  const meshes = [];
+  root.traverse(o => { if (o.isMesh && !o.userData.isOutline) meshes.push(o); });
+  for (const m of meshes) {
+    const shell = new THREE.Mesh(m.geometry, mat);
+    shell.scale.setScalar(1.04);
+    shell.userData.isOutline = true;
+    m.add(shell);
+  }
 }
 function updateDayEdges() {
   const d = sceneState().daylight;
