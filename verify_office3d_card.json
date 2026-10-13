@@ -1,0 +1,54 @@
+{
+  "port": 8651,
+  "checks": {
+    "payload_fields": "ok (6 agents x 3 fields)",
+    "agent_card_crosscheck": "ok (0 active agents with a running card matched the DB)",
+    "snapshot_inprocess": "ok (real office_snapshot: product-owner -> t_a82436a3 '3D journey: idle life too thin (game vib')",
+    "served_client": "ok (page + js byte-identical, card renderer present)",
+    "office_sse": "no office event within window (transitions only)"
+  },
+  "agents": [
+    {
+      "id": "product-owner",
+      "state": "idle",
+      "card_id": null,
+      "card_title": null,
+      "card_state": null
+    },
+    {
+      "id": "pixel-art-designer",
+      "state": "idle",
+      "card_id": null,
+      "card_title": null,
+      "card_state": null
+    },
+    {
+      "id": "ux-ui",
+      "state": "idle",
+      "card_id": null,
+      "card_title": null,
+      "card_state": null
+    },
+    {
+      "id": "software-engineer",
+      "state": "idle",
+      "card_id": null,
+      "card_title": null,
+      "card_state": null
+    },
+    {
+      "id": "qa-visual",
+      "state": "idle",
+      "card_id": null,
+      "card_title": null,
+      "card_state": null
+    },
+    {
+      "id": "qa-journey",
+      "state": "idle",
+      "card_id": null,
+      "card_title": null,
+      "card_state": null
+    }
+  ]
+}
