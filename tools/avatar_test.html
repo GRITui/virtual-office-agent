@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Avatar verify</title>
+<style>html,body{margin:0;padding:0;background:#2b2622;}</style>
+<script type="importmap">
+{ "imports": {
+  "three": "./vendor/three.module.js",
+  "three/addons/": "./vendor/"
+}}
+</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<pre id="dbg" style="position:fixed;top:0;left:0;color:#0f0;font:12px monospace;z-index:9"></pre>
+<script>
+window.__dbg = (m) => {
+  const el = document.getElementById('dbg');
+  el.textContent += m + "\n";
+  try { console.log('[dbg]', m); } catch (e) {}
+};
+window.__dbg('page-start');
+window.addEventListener('error', (e) => window.__dbg('WINERR ' + (e.message || e)));
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+window.__dbg('module-imported three=' + (THREE.REVISION));
+
+const AGENTS = ["product-owner","pixel-art-designer","ux-ui",
+                "software-engineer","qa-visual","qa-journey"];
+const W = 1200, H = 700;
+
+const renderer = new THREE.WebGLRenderer({canvas: document.getElementById('c'), antialias:true});
+renderer.setSize(W, H);
+renderer.setPixelRatio(1);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x2b2622);
+
+const camera = new THREE.PerspectiveCamera(40, W/H, 0.1, 100);
+camera.position.set(0, 0.75, 4.6);
+camera.lookAt(0, 0.62, 0);
+window.__scene = scene;
+window.__camera = camera;
+window.__THREE = THREE;
+window.__renderer = renderer;
+// flexible render hook for debugging
+window.__forceRender = function (opts = {}) {
+  scene.traverse((o) => {
+    if (o.isMesh) {
+      if (opts.frustumCulled !== undefined) o.frustumCulled = opts.frustumCulled;
+      if (opts.doubleSide) {
+        if (Array.isArray(o.material)) o.material.forEach((m) => (m.side = 2));
+        else o.material.side = 2;
+      }
+      if (opts.wireframe) {
+        if (Array.isArray(o.material)) o.material.forEach((m) => (m.wireframe = true));
+        else o.material.wireframe = true;
+      }
+    }
+  });
+  renderer.render(scene, camera);
+  return { calls: renderer.info.render.calls, triangles: renderer.info.render.triangles };
+};
+
+// warm key + fill
+const key = new THREE.DirectionalLight(0xffe0b0, 2.2);
+key.position.set(2.5, 4.0, 3.0);
+scene.add(key);
+const fill = new THREE.DirectionalLight(0xbcd4ff, 0.8);
+fill.position.set(-3.0, 2.0, 2.0);
+scene.add(fill);
+const amb = new THREE.AmbientLight(0xffffff, 0.55);
+scene.add(amb);
+
+// floor
+const floor = new THREE.Mesh(
+  new THREE.PlaneGeometry(12, 8),
+  new THREE.MeshStandardMaterial({color:0x3a332c, roughness:1.0, metalness:0.0}));
+floor.rotation.x = -Math.PI/2;
+scene.add(floor);
+
+const loader = new GLTFLoader();
+const SPACING = 0.72;
+const loads = AGENTS.map((p, i) => {
+  const x = (i - (AGENTS.length-1)/2) * SPACING;
+  return loader.load('../assets/office3d/avatars/' + p + '.glb', (gltf) => {
+    const m = gltf.scene;
+    m.position.set(x, 0, 0);
+    scene.add(m);
+    window.__dbg('loaded ' + p);
+  }, undefined, (err) => window.__dbg('LOADERR ' + p + ' ' + err));
+});
+
+Promise.all(loads).then(() => {
+  window.__dbg('all-loaded');
+  // Precompute bounds + world matrices so the first real frame culls correctly
+  // (matches the SE scaffold's continuous rAF loop; avoids a first-frame
+  //  frustum-cull artifact from lazily-computed bounding spheres).
+  scene.updateMatrixWorld(true);
+  scene.traverse((o) => {
+    if (o.isMesh && o.geometry) {
+      o.geometry.computeBoundingSphere();
+      o.geometry.computeBoundingBox();
+    }
+  });
+  // steady-state render loop (like the real app)
+  let frames = 0;
+  function loop() {
+    renderer.render(scene, camera);
+    frames++;
+    if (frames >= 8) {
+      window.__RENDER_DONE = true;
+      document.title = 'RENDER_DONE';
+      window.__dbg('render-done frames=' + frames);
+      return;
+    }
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+}).catch((e) => {
+  window.__RENDER_ERR = String(e);
+  document.title = 'RENDER_ERR';
+  window.__dbg('RENDER_ERR ' + e);
+  console.error(e);
+});
+</script>
+</body>
+</html>
