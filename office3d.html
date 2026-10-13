@@ -58,6 +58,14 @@
     background:var(--panel); border:1px solid var(--panel-line); border-radius:12px;
     box-shadow:0 6px 24px rgba(0,0,0,.35); display:none; flex-direction:column; overflow:hidden; }
   #drillPanel.open{ display:flex; }
+  /* mobile: drill-in is a bottom sheet, not a 320px right panel — a side panel at
+     390px covers the board counts + the scene it describes (188x87px overlap).
+     Full-width, anchored to bottom, capped at 58% so the scene stays visible above.
+     MUST come after the base #drillPanel rule (equal specificity, source order wins). */
+  @media (max-width:520px){
+    #drillPanel{ top:auto; bottom:0; left:0; right:0; width:100%; max-height:58%;
+      border-radius:14px 14px 0 0; }
+  }
   #drillHead{ display:flex; align-items:center; gap:8px; padding:10px 12px;
     border-bottom:1px solid var(--panel-line); background:var(--paper-2); }
   #drillHead .swatch{ width:12px; height:12px; border-radius:4px; flex:0 0 auto; }
