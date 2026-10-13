@@ -50,6 +50,10 @@ BOARD_HTML_PATH = os.path.join(BASE_DIR, "board.html")
 WEBUI_CHAT_HTML_PATH = os.path.join(BASE_DIR, "webui", "index.html")
 OFFICE_HTML_PATH = os.path.join(BASE_DIR, "office.html")
 STACK_HTML_PATH = os.path.join(BASE_DIR, "tech-stack.html")
+# 3D office host page (open page shell, like /office): reads tr_token from
+# localStorage and iframes /unity/index.html?token=<tr_token>. Created by
+# the Unity tooling card; served at /office3d.
+OFFICE3D_HTML_PATH = os.path.join(BASE_DIR, "office3d.html")
 # Read-only Hermes kanban board. Overridable via config "kanban_db".
 KANBAN_DB_DEFAULT = os.path.expanduser("~/.hermes/kanban.db")
 # 3D office feed: a turn open with no delta for this long reads "stuck".
@@ -1084,6 +1088,16 @@ def make_handler(room):
                     self._send(200, f.read(), "text/html; charset=utf-8")
             elif path == "/stack":
                 with open(STACK_HTML_PATH, "rb") as f:
+                    self._send(200, f.read(), "text/html; charset=utf-8")
+            elif path == "/office3d":
+                # 3D office host page (open page shell, like /office): reads
+                # tr_token from localStorage and iframes /unity/index.html.
+                # The Unity tooling card creates office3d.html — until it
+                # lands, return a clean 404 (not a crash).
+                if not os.path.exists(OFFICE3D_HTML_PATH):
+                    self._json({"error": "office3d.html not built yet"}, 404)
+                    return
+                with open(OFFICE3D_HTML_PATH, "rb") as f:
                     self._send(200, f.read(), "text/html; charset=utf-8")
             elif path == "/room":
                 # The video-game combined page (office left / chat right).

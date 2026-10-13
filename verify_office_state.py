@@ -202,10 +202,23 @@ def check_static():
         assert code == 404, "traversal %s -> %s (want 404)" % (evil, code)
     code, _, _ = http("GET", BASE + "/unity/Build.wasm")
     assert code == 404, "/unity missing build -> %s (want 404)" % code
+    # /office3d host page: temp file (the Unity card creates the real
+    # office3d.html) -> 200 + text/html, then removed.
+    office3d_html = os.path.join(REPO, "office3d.html")
+    with open(office3d_html, "w") as f:
+        f.write("<html>office3d host probe</html>")
+    try:
+        code, hdrs, body = http("GET", BASE + "/office3d")
+        assert code == 200 and "text/html" in (hdrs.get("Content-Type") or ""), \
+            "/office3d -> %s" % code
+        assert b"office3d host probe" in body
+    finally:
+        os.remove(office3d_html)
     assert os.path.exists(os.path.join(REPO, "assets", "office3d",
                                        ".gitkeep")), ".gitkeep missing"
     print("  static: manifest 200+json (temp file, removed), traversal "
-          "blocked, /unity 404, .gitkeep intact")
+          "blocked, /unity 404, /office3d 200 (temp file, removed), "
+          ".gitkeep intact")
 
 
 def main():

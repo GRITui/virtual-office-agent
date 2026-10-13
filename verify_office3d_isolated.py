@@ -216,6 +216,21 @@ def isolated_port(cfg_port):
             assert code == 200 and "text/html" in hdrs.get("Content-Type", ""), \
                 "%s -> %s" % (route, code)
 
+        # /office3d host page: temp file (the Unity card creates the real
+        # office3d.html) -> 200 + text/html, then removed.
+        office3d_html = os.path.join(scratch, "office3d.html")
+        with open(office3d_html, "w") as f:
+            f.write("<html>office3d host probe</html>")
+        try:
+            code, hdrs, body = http("GET", base + "/office3d")
+            assert code == 200 and "text/html" in hdrs.get("Content-Type", ""), \
+                "/office3d -> %s" % code
+            assert b"office3d host probe" in body
+        finally:
+            os.remove(office3d_html)
+        code, _, _ = http("GET", base + "/office3d")
+        assert code == 404, "removed office3d.html still served: %s" % code
+
         # Auth gates: 401 without token, 200 with.
         for route in ["/state", "/office-state", "/messages", "/kanban",
                       "/export"]:

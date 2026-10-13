@@ -35,6 +35,7 @@ directory (`BASE_DIR`), so each directory of server files is one instance.
 | `/room` | open | same file — canonical URL |
 | `/board` | open | `board.html` (kanban wall) |
 | `/office` | open | `office.html` (2D office scene) |
+| `/office3d` | open | `office3d.html` (3D office host page — reads `tr_token` from localStorage, iframes `/unity/index.html?token=…`) |
 | `/stack` | open | `tech-stack.html` |
 | `/health` | open | `{status, round_active, auth_enabled}` |
 | `/state` | Bearer | initial-state-sync snapshot (see below) |
