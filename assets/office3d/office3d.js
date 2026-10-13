@@ -283,7 +283,10 @@ function updateLabels() {
     const av = avatars[n], el = labelEls[n]; if (!av || !el) continue;
     _pv.copy(av.anchor3).project(camera);
     const behind = _pv.z > 1;
-    const x = (_pv.x * 0.5 + 0.5) * innerWidth, y = (-_pv.y * 0.5 + 0.5) * innerHeight;
+    const x0 = (_pv.x * 0.5 + 0.5) * innerWidth, y = (-_pv.y * 0.5 + 0.5) * innerHeight;
+    // keep the pill within the viewport (it is centered on x via translate(-50%))
+    const w = el.offsetWidth || 120;
+    const x = clamp(x0, w / 2 + 4, innerWidth - w / 2 - 4);
     el.style.transform = 'translate(-50%,-100%) translate(' + x.toFixed(1) + 'px,' + y.toFixed(1) + 'px)';
     el.style.opacity = behind ? '0' : '1';
     el.style.display = behind ? 'none' : 'flex';

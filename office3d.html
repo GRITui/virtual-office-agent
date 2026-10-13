@@ -37,6 +37,14 @@
   .lbl.active{ outline:2px solid var(--gold); }
   .lbl .lamp{ width:7px; height:7px; border-radius:50%; background:#5a4a3a; flex:0 0 auto; }
   .lbl .lamp.on{ box-shadow:0 0 6px 2px rgba(232,185,61,.7); }
+  /* narrow (mobile): shrink labels + cap name so 3-per-row fit without overlapping */
+  @media (max-width:520px){
+    .lbl{ font-size:9px; padding:2px 5px; gap:4px; }
+    .lbl .swatch{ width:6px; height:6px; }
+    .lbl .lamp{ width:5px; height:5px; }
+    .lbl .st{ font-size:8px; }
+    .lbl .nm{ max-width:58px; overflow:hidden; text-overflow:ellipsis; }
+  }
   #statusFooter{ position:absolute; left:0; right:0; bottom:0; display:flex;
     align-items:center; gap:14px; padding:7px 14px;
     background:linear-gradient(0deg, rgba(20,14,8,.82), rgba(20,14,8,0));
