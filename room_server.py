@@ -52,6 +52,29 @@ OFFICE_HTML_PATH = os.path.join(BASE_DIR, "office.html")
 STACK_HTML_PATH = os.path.join(BASE_DIR, "tech-stack.html")
 # Read-only Hermes kanban board. Overridable via config "kanban_db".
 KANBAN_DB_DEFAULT = os.path.expanduser("~/.hermes/kanban.db")
+# 3D office feed: a turn open with no delta for this long reads "stuck".
+# Matches the office client's STUCK_MS so the 2D + 3D scenes agree.
+OFFICE_STUCK_MS = 8000
+# 3D office feed: after a turn posts, the agent reports "done" for this
+# window (matches office.html's done-flash: state "done" on the message
+# event, deleted 600 ms later). After it, /office-state reports "idle"
+# with idle_since = the post time.
+OFFICE_DONE_MS = 600
+# 3D office static content (OPEN, no auth — same as the page shells):
+# /assets/office3d/* -> assets/office3d/ (glb/json/png scene assets),
+# /unity/* -> build/office3d-webgl/ (Unity WebGL build output).
+OFFICE3D_ASSETS_DIR = os.path.join(BASE_DIR, "assets", "office3d")
+UNITY_BUILD_DIR = os.path.join(BASE_DIR, "build", "office3d-webgl")
+# MIME map for the static routes (default: application/octet-stream).
+STATIC_MIME = {
+    ".glb": "model/gltf-binary",
+    ".json": "application/json",
+    ".png": "image/png",
+    ".html": "text/html",
+    ".js": "application/javascript",
+    ".wasm": "application/wasm",
+    ".data": "application/octet-stream",
+}
 
 HUMAN = "Krit"
 ALL_TOKENS = {"all", "everyone"}
@@ -424,12 +447,26 @@ class Room:
                             self.post(a, reply)
                             self._cascade(reply, cap)
         finally:
+            now_ms = time.time() * 1000.0
             with self.lock:
                 self.round_active = False
                 self.pending = []
                 self.stop_flag = False
-                self.turn_state = {}
+                # Round done/stopped: every agent leaves its active state —
+                # idle_since = now (server time) so the scene's idle-duration
+                # behaviors ride on server time, not client clocks.
+                for name in self.agent_order:
+                    self.turn_state[name] = {
+                        "state": "idle",
+                        "started_at": None,
+                        "last_delta_at": None,
+                        "tool_label": None,
+                        "card_id": None,
+                        "idle_since": now_ms,
+                        "done_at": None,
+                    }
             self.broadcast({"type": "round", "state": "stopped" if self.stop_flag else "done"})
+            self.broadcast_office()
 
     def _cascade(self, reply, cap):
         """Hand-offs: mentions inside a reply join the round's pending queue
@@ -632,28 +669,137 @@ class Room:
         Mirrors what the office client derives from turn/turn_delta SSE, so a
         fresh client can seed its scene on load and reflect live state
         mid-round instead of showing 'idle' until the next turn_delta.
-        `state=None` clears the agent (its turn just posted). Timestamps are
-        epoch ms (the client's Date.now()); `tool_label` and `card_id`
-        persist across reasoning/text deltas until replaced.
+        `state=None` means the turn just posted: the entry is NOT dropped —
+        it becomes state="done" + done_at, and /office-state reports "done"
+        for OFFICE_DONE_MS, then "idle" (idle_since = the post time).
+        Timestamps are epoch ms (the client's Date.now()); `tool_label` and
+        `card_id` persist across reasoning/text deltas until replaced.
+        On every real state transition (thinking/working/typing/done) the
+        full /office-state snapshot is broadcast as an `office` SSE event —
+        the 3D scene's push channel (no ticker, no poller).
         """
         now = time.time() * 1000.0
         with self.lock:
-            if state is None:
-                self.turn_state.pop(agent, None)
-                return
             cur = self.turn_state.get(agent)
-            started = cur["started_at"] if cur else now
-            label = tool_label if tool_label is not None else (
-                cur["tool_label"] if cur else None)
-            cid = card_id if card_id is not None else (
-                cur["card_id"] if cur else None)
-            self.turn_state[agent] = {
+            if state is None:
+                if cur is None:
+                    return
+                self.turn_state[agent] = {
+                    "state": "done",
+                    "started_at": cur.get("started_at"),
+                    "last_delta_at": cur.get("last_delta_at"),
+                    "tool_label": cur.get("tool_label"),
+                    "card_id": cur.get("card_id"),
+                    "idle_since": None,
+                    "done_at": now,
+                }
+                changed = True
+            else:
+                # A fresh turn never inherits the previous one's clock or
+                # labels: after "done"/"idle" (or no entry) it starts clean.
+                if cur is None or cur.get("state") in ("done", "idle"):
+                    started = now
+                    label = tool_label
+                    cid = card_id
+                else:
+                    started = cur["started_at"]
+                    label = tool_label if tool_label is not None else cur["tool_label"]
+                    cid = card_id if card_id is not None else cur["card_id"]
+                self.turn_state[agent] = {
+                    "state": state,
+                    "started_at": started,
+                    "last_delta_at": now,
+                    "tool_label": label,
+                    "card_id": cid,
+                    "idle_since": None,
+                    "done_at": None,
+                }
+                changed = cur is None or cur.get("state") != state
+        if changed:
+            self.broadcast_office()
+
+    def office_snapshot(self):
+        """Full /office-state payload — the single source of truth for the
+        3D office feed. Served by GET /office-state AND broadcast as the
+        `office` SSE event, so the two surfaces can never drift.
+
+        Per-agent row (seat order): id, seat, color, state, tool_label,
+        card_id, card_title, card_state, elapsed_ms, last_delta_ms,
+        idle_since. State enum: thinking/working/typing/stuck/done/idle.
+        `idle_since` (epoch ms, server time) is when the agent last LEFT an
+        active state — null while active, set at the turn post (done window
+        expiry) and at round done/stopped. Idle-duration behaviors in the
+        scene must ride on this, not client clocks.
+        """
+        now = time.time() * 1000.0
+        with self.lock:
+            turns = {a: dict(t) for a, t in self.turn_state.items()}
+            round_active = self.round_active
+        db_path = self.cfg.get("kanban_db", KANBAN_DB_DEFAULT)
+        try:
+            board = read_kanban_board(db_path)
+        except sqlite3.Error:
+            board = {"status_counts": {}, "tasks": []}
+        task_by_id = {t["id"]: t for t in board.get("tasks", [])}
+        agents_out = []
+        for seat, name in enumerate(self.agent_order):
+            meta = self.agents.get(name, {})
+            t = turns.get(name)
+            if t is None:
+                state, tool_label, card_id, last = "idle", None, None, None
+                elapsed, idle_since = 0, None
+            else:
+                tool_label = t.get("tool_label")
+                card_id = t.get("card_id")
+                last = t.get("last_delta_at")
+                raw = t.get("state") or "working"
+                if raw == "done":
+                    # 600 ms done-flash window after the turn posts.
+                    done_at = t.get("done_at")
+                    if done_at is not None and (now - done_at) <= OFFICE_DONE_MS:
+                        state, idle_since = "done", None
+                    else:
+                        state, idle_since = "idle", done_at
+                else:
+                    state = ("stuck"
+                             if last is not None and (now - last) > OFFICE_STUCK_MS
+                             else raw)
+                    # Only round-end idle entries carry a server-side
+                    # idle_since; active entries are null by definition.
+                    idle_since = t.get("idle_since") if raw == "idle" else None
+                started = t.get("started_at")
+                elapsed = int(now - started) if started else 0
+            task = task_by_id.get(card_id) if card_id else None
+            agents_out.append({
+                "id": name,
+                "seat": seat,
+                "color": meta.get("color"),
                 "state": state,
-                "started_at": started,
-                "last_delta_at": now,
-                "tool_label": label,
-                "card_id": cid,
-            }
+                "tool_label": tool_label,
+                "card_id": card_id,
+                "card_title": task.get("title") if task else None,
+                "card_state": task.get("status") if task else None,
+                "elapsed_ms": elapsed,
+                "last_delta_ms": last,
+                "idle_since": idle_since,
+            })
+        return {
+            "round_active": round_active,
+            "now": int(now),
+            "stuck_ms": OFFICE_STUCK_MS,
+            "agents": agents_out,
+            "board": board.get("status_counts", {}),
+        }
+
+    def broadcast_office(self):
+        """Push the full /office-state snapshot as an `office` SSE event.
+        Fired on every per-agent state transition (thinking/working/
+        typing/done) and on round done/stopped (all agents -> idle).
+        Defensive: a feed failure must never break the turn lifecycle."""
+        try:
+            self.broadcast({"type": "office", **self.office_snapshot()})
+        except Exception:  # noqa: BLE001
+            pass
 
     # ---------- SSE ----------
 
@@ -769,6 +915,28 @@ def make_handler(room):
             parts = urllib.parse.urlsplit(self.path)
             return parts.path, urllib.parse.parse_qs(parts.query)
 
+        def _serve_static(self, prefix, base_dir, path):
+            """Serve a file under base_dir for paths starting with `prefix`.
+            OPEN (no auth — static content, same as the page shells). The
+            subpath is URL-decoded, resolved with realpath, and must stay
+            inside base_dir (same traversal defense as /files/)."""
+            sub = urllib.parse.unquote(path[len(prefix):].lstrip("/"))
+            real = os.path.realpath(os.path.join(base_dir, sub))
+            base = os.path.realpath(base_dir)
+            if not real.startswith(base + os.sep) or not os.path.isfile(real):
+                self._json({"error": "not found"}, 404)
+                return
+            with open(real, "rb") as f:
+                data = f.read()
+            ext = os.path.splitext(real)[1].lower()
+            mime = STATIC_MIME.get(ext, "application/octet-stream")
+            self.send_response(200)
+            self.send_header("Content-Type", mime)
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(data)
+
         def do_GET(self):
             path, query = self._split()
             if path == "/":
@@ -797,6 +965,16 @@ def make_handler(room):
                                   for a, t in room.turn_state.items()},
                     }
                 self._json(snap)
+            elif path == "/office-state":
+                # 3D office feed: one row per configured agent in seat order,
+                # with a normalized state enum the scene binds animation to
+                # (idle/thinking/working/stuck/done) + server-time idle_since.
+                # Reuses the read-only board for card titles + states. Authed
+                # like /state. Single source of truth: office_snapshot() —
+                # the same payload the `office` SSE event carries.
+                if not self._require_auth():
+                    return
+                self._json(room.office_snapshot())
             elif path == "/messages":
                 if not self._require_auth():
                     return
@@ -924,6 +1102,12 @@ def make_handler(room):
                 board["agents"] = {n: a["color"] for n, a in room.agents.items()}
                 board["source"] = db_path
                 self._json(board)
+            elif path.startswith("/assets/office3d/"):
+                # 3D office scene assets (OPEN static content).
+                self._serve_static("/assets/office3d/", OFFICE3D_ASSETS_DIR, path)
+            elif path.startswith("/unity/"):
+                # Unity WebGL build output (OPEN static content).
+                self._serve_static("/unity/", UNITY_BUILD_DIR, path)
             elif path.startswith("/files/"):
                 # MVP-5: serve an uploaded file. Authed (same token gate as the
                 # POST routes). The id is used ONLY as a key into the file index
