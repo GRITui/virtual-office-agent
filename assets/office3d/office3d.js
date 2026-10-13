@@ -15,6 +15,14 @@ const ACCENTS = {
   'product-owner': [232, 185, 61], 'pixel-art-designer': [224, 93, 93], 'ux-ui': [93, 184, 224],
   'software-engineer': [126, 201, 111], 'qa-visual': [201, 143, 224], 'qa-journey': [224, 154, 93]
 };
+// SOT accents are sRGB. three.js r160's float Color(r,g,b) ctor stores them as-is
+// (treated as linear, no sRGB->linearize) so they render ~gamma-2.2 brighter.
+// Build via setHex (sRGB->linear) so materials/lights are correct in working space;
+// getHexString() (sRGB default) round-trips the DOM swatches back to SOT sRGB.
+function accentHex(name) {
+  const [r, g, b] = ACCENTS[name];
+  return (r << 16) | (g << 8) | b;
+}
 const TINT_KEYS = [ // [hour, r, g, b, alpha] flat ambient tint keyframes (wraps 24->0)
   [0.0, 10, 16, 40, 0.42], [5.0, 107, 74, 122, 0.24], [8.0, 185, 138, 90, 0.10],
   [12.0, 255, 242, 208, 0.03], [17.0, 185, 138, 90, 0.09], [19.5, 150, 70, 58, 0.22],
@@ -130,15 +138,15 @@ async function loadAssets() {
     scene.add(root);
     const armL = root.getObjectByName('armL'), armR = root.getObjectByName('armR'), head = root.getObjectByName('head');
     // state glow: a small emissive disc at the desk (profile-colored) + a point lamp
-    const glowMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(ACCENTS[name][0] / 255, ACCENTS[name][1] / 255, ACCENTS[name][2] / 255), transparent: true, opacity: 0.0 });
+    const glowMat = new THREE.MeshBasicMaterial({ color: new THREE.Color().setHex(accentHex(name)), transparent: true, opacity: 0.0 });
     const glow = new THREE.Mesh(new THREE.CircleGeometry(0.16, 20), glowMat);
     glow.rotation.x = -Math.PI / 2; glow.position.set(DESK_XZ[i][0], 0.02, DESK_XZ[i][1]);
     scene.add(glow);
-    const lamp = new THREE.PointLight(new THREE.Color(ACCENTS[name][0] / 255, ACCENTS[name][1] / 255, ACCENTS[name][2] / 255), 0.0, 4.5, 2);
+    const lamp = new THREE.PointLight(new THREE.Color().setHex(accentHex(name)), 0.0, 4.5, 2);
     lamp.position.copy(lampPos[i]); scene.add(lamp);
     avatars[name] = {
       root, armL, armR, head, lamp, glow, glowMat,
-      state: 'idle', color: new THREE.Color(ACCENTS[name][0] / 255, ACCENTS[name][1] / 255, ACCENTS[name][2] / 255),
+      state: 'idle', color: new THREE.Color().setHex(accentHex(name)),
       card: '', card_id: null, card_state: null, tool_label: null,
       stream: [], pose: { aL: 0, aR: 0, h: 0 }, baseY: root.position.y,
       anchor3: new THREE.Vector3(x3, 1.25, z3) // label anchor (above head)
