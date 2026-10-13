@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>team-room · kanban</title>
+<style>
+  :root {
+    --bg: #101216; --panel: #171a20; --border: #262b34;
+    --text: #d7dbe2; --dim: #8a93a3; --accent: #e8b93d;
+    --ok: #7ec96f; --bad: #e05d5d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    display: flex; flex-direction: column; height: 100vh;
+  }
+  header {
+    padding: 12px 20px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 12px; background: var(--panel);
+  }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+  header .hint { color: var(--dim); font-size: 12px; }
+  #status { margin-left: auto; font-size: 12px; color: var(--dim); }
+  /* shared nav — same links/labels as the combined page (webui/index.html) */
+  header .nav { display: flex; gap: 2px; }
+  header .nav a {
+    color: var(--dim); text-decoration: none; font-size: 12px;
+    padding: 4px 11px; border-radius: 999px;
+    transition: color .12s ease, background .12s ease;
+  }
+  header .nav a:hover { color: var(--text); background: #20242e; }
+  header .nav a.on { color: var(--text); background: #20242e; font-weight: 600; }
+  #board {
+    flex: 1; display: flex; gap: 14px; padding: 16px 20px;
+    overflow-x: auto; align-items: flex-start;
+  }
+  .col {
+    flex: 0 0 300px; background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 8px;
+    max-height: 100%;
+  }
+  .col[data-status="blocked"] { border-color: rgba(224,93,93,.45); }
+  .col > h2 {
+    font-size: 12px; text-transform: uppercase; letter-spacing: .5px;
+    margin: 2px 4px 4px; color: var(--dim); display: flex; align-items: center; gap: 8px;
+  }
+  .col > h2 .n {
+    background: var(--border); color: var(--text); border-radius: 10px;
+    padding: 0 8px; font-size: 11px; font-weight: 700;
+  }
+  .cards { overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding-right: 2px; }
+  .card {
+    border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px;
+    background: var(--bg);
+  }
+  .card .top { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; }
+  .who {
+    font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 9px;
+    display: inline-flex; align-items: center; gap: 5px;
+  }
+  .who .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+  .prio { margin-left: auto; font-size: 10px; color: var(--dim); }
+  .title { font-size: 13px; font-weight: 600; word-break: break-word; }
+  .meta { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+  .run { font-size: 10px; font-weight: 700; padding: 1px 7px; border-radius: 8px; letter-spacing: .3px; }
+  .rel { font-size: 10px; color: var(--dim); }
+  .empty { color: var(--dim); font-size: 12px; padding: 4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>team-room &middot; kanban</h1>
+  <nav class="nav" aria-label="Primary">
+    <a href="/" target="_top">Chat</a>
+    <a href="/board" target="_top" class="on" aria-current="page">Board</a>
+    <a href="/office" target="_top">Office</a>
+  </nav>
+  <span class="hint">read-only &middot; team-room board</span>
+  <span id="status">loading&hellip;</span>
+</header>
+<div id="board"></div>
+<script>
+const COL_ORDER = ["todo", "running", "blocked", "done"];
+const COL_LABEL = { todo: "To do", running: "Running", blocked: "Blocked", done: "Done" };
+const RUN_COLOR = { completed: "var(--ok)", blocked: "var(--bad)", crashed: "var(--bad)",
+  timed_out: "var(--bad)", failed: "var(--bad)", running: "var(--accent)" };
+let AGENTS = {};
+
+function esc(s) {
+  return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function colorFor(name) { return AGENTS[name] || "#8a93a3"; }
+function label(status) { return COL_LABEL[status] || status; }
+function rel(ts) { // kanban.db timestamps are epoch SECONDS
+  if (!ts) return "";
+  const d = Date.now() / 1000 - ts;
+  if (d < 60) return "just now";
+  if (d < 3600) return Math.floor(d / 60) + "m ago";
+  if (d < 86400) return Math.floor(d / 3600) + "h ago";
+  return Math.floor(d / 86400) + "d ago";
+}
+
+function card(t) {
+  const c = colorFor(t.assignee);
+  const run = t.latest_run;
+  let runBadge = "";
+  if (run && run.outcome) {
+    const col = RUN_COLOR[run.outcome] || "var(--dim)";
+    runBadge = `<span class="run" style="background:${col}22;color:${col};border:1px solid ${col}55">${esc(run.outcome)}</span>`;
+  }
+  let links = "";
+  if (t.parents && t.parents.length) {
+    const n = t.parents.length;
+    links += `<span class="rel" title="child of ${esc(t.parents.join(", "))}">&larr; ${n} parent${n > 1 ? "s" : ""}</span>`;
+  }
+  if (t.children && t.children.length) links += `<span class="rel" title="${esc(t.children.join(", "))}">&rarr; ${t.children.length} sub</span>`;
+  const when = (t.status === "done" && t.completed_at) ? "done " + rel(t.completed_at)
+    : (t.status === "blocked") ? "blocked " + rel(t.created_at)
+    : (t.status === "running") ? "running " + rel(t.created_at)
+    : rel(t.created_at);
+  const time = when ? `<span class="rel">${esc(when)}</span>` : "";
+  const prio = (t.priority && t.priority > 0) ? `<span class="prio">P${esc(t.priority)}</span>` : "";
+  return `<div class="card">
+    <div class="top">
+      <span class="who" style="background:${c}22;color:${c};border:1px solid ${c}55"><span class="dot" style="background:${c}"></span>${esc(t.assignee)}</span>
+      ${prio}
+    </div>
+    <div class="title">${esc(t.title)}</div>
+    <div class="meta">${runBadge}${time}${links}</div>
+  </div>`;
+}
+
+function render(board) {
+  const counts = board.status_counts || {};
+  const present = Object.keys(counts);
+  // always show all 4 columns (empty ones read "none"); append any extra statuses
+  const order = COL_ORDER.slice()
+    .concat(present.filter(s => !COL_ORDER.includes(s)));
+  const byStatus = {};
+  board.tasks.forEach(t => { (byStatus[t.status] = byStatus[t.status] || []).push(t); });
+  const boardEl = document.getElementById("board");
+  boardEl.innerHTML = "";
+  order.forEach(status => {
+    const list = byStatus[status] || [];
+    const col = document.createElement("div");
+    col.className = "col";
+    col.dataset.status = status;
+    col.innerHTML =
+      `<h2>${esc(label(status))} <span class="n">${list.length}</span></h2>` +
+      `<div class="cards">${list.length ? list.map(card).join("") : '<div class="empty">none</div>'}</div>`;
+    boardEl.appendChild(col);
+  });
+  const s = document.getElementById("status");
+  s.textContent = `${board.total} tasks · ${new Date().toLocaleTimeString()}`;
+}
+
+// MVP-3: /kanban is auth-gated — same tr_token in localStorage as /chat.
+let authToken = localStorage.getItem("tr_token");
+function authHeaders() { const h = {}; if (authToken) h["Authorization"] = "Bearer " + authToken; return h; }
+function promptForToken() {
+  const t = prompt("team-room auth token (config.json -> auth_token):");
+  if (t) { authToken = t.trim(); localStorage.setItem("tr_token", authToken); }
+  return !!authToken;
+}
+
+async function load() {
+  try {
+    const r = await fetch("/kanban", { headers: authHeaders() });
+    if (r.status === 401) { promptForToken(); throw new Error("unauthorized"); }
+    const d = await r.json();
+    if (d.agents) AGENTS = d.agents;
+    render(d);
+  } catch (e) {
+    document.getElementById("status").textContent = "error: " + e;
+  }
+}
+load();
+setInterval(load, 5000);
+</script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+# Secrets / machine-specific runtime config (keep the real config.json local)
+config.json
+
+# Runtime data & transcripts
+room.jsonl
+liveness_capture.jsonl
+standup_job.json
+standup_state.json
+uploads/
+
+# Logs
+*.log
+
+# Python caches
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Screenshots / binary captures
+*.png
+
+# Backups
+*.bak*

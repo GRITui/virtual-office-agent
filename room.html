@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>team-room</title>
+<style>
+  :root {
+    --bg: #101216; --panel: #171a20; --border: #262b34;
+    --text: #d7dbe2; --dim: #8a93a3; --accent: #e8b93d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    display: flex; flex-direction: column; height: 100vh;
+  }
+  header {
+    padding: 12px 20px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 12px; background: var(--panel);
+  }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+  header .hint { color: var(--dim); font-size: 12px; }
+  #status { margin-left: auto; font-size: 12px; color: var(--dim); }
+  #status.active { color: var(--accent); }
+  #msgs { flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 10px; }
+  .msg { display: flex; gap: 10px; max-width: 820px; }
+  .badge {
+    flex: 0 0 auto; font-size: 11px; font-weight: 700; padding: 3px 8px;
+    border-radius: 10px; height: fit-content; margin-top: 2px; letter-spacing: .3px;
+  }
+  .body { white-space: pre-wrap; word-break: break-word; }
+  .meta { color: var(--dim); font-size: 11px; margin-bottom: 2px; }
+  .mention { color: var(--accent); font-weight: 600; }
+  .thinking .body::after {
+    content: "…"; display: inline-block; animation: pulse 1s infinite;
+  }
+  @keyframes pulse { 50% { opacity: .3; } }
+  footer {
+    border-top: 1px solid var(--border); background: var(--panel);
+    padding: 12px 20px; display: flex; gap: 10px;
+  }
+  footer input {
+    flex: 1; background: var(--bg); color: var(--text); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 12px; font: inherit; outline: none;
+  }
+  footer input:focus { border-color: var(--accent); }
+  footer button {
+    background: var(--accent); color: #14161a; border: 0; border-radius: 8px;
+    padding: 10px 18px; font: inherit; font-weight: 600; cursor: pointer;
+  }
+  footer button.stop { background: #e05d5d; color: #fff; display: none; }
+  footer button:disabled { opacity: .5; cursor: default; }
+</style>
+</head>
+<body>
+<header>
+  <h1>team-room</h1>
+  <span class="hint">@agent-name to address one &middot; @all for everyone</span>
+  <span id="status">idle</span>
+</header>
+<div id="msgs"></div>
+<footer>
+  <input id="input" type="text" placeholder="Message the room — e.g. @product-owner propose a game concept" autocomplete="off">
+  <button id="stop" class="stop">Stop</button>
+  <button id="send">Send</button>
+</footer>
+<script>
+const AGENT_COLORS = {};
+let state = { round_active: false, pending: [] };
+let seenIds = new Set();
+
+// Sprint 4: bearer-token auth. Prompt once, store in localStorage, send on
+// gated routes (/message, /stop). Re-prompt on a 401 so a wrong/missing token
+// can't wedge the UI.
+let authToken = localStorage.getItem("tr_token");
+function authHeaders() {
+  const h = { "Content-Type": "application/json" };
+  if (authToken) h["Authorization"] = "Bearer " + authToken;
+  return h;
+}
+function promptForToken() {
+  const t = prompt("team-room auth token (config.json -> auth_token):");
+  if (t) { authToken = t.trim(); localStorage.setItem("tr_token", authToken); }
+  return !!authToken;
+}
+if (!authToken) promptForToken();
+
+async function loadConfig() {
+  const r = await fetch("/messages");
+  const d = await r.json();
+  d.messages.forEach(m => { if (!seenIds.has(m.id)) addMsg(m); });
+  state = d.state || state;
+  updateStatus();
+}
+
+function colorFor(name) {
+  if (AGENT_COLORS[name]) return AGENT_COLORS[name];
+  // stable hash color for unknown authors
+  let h = 0; for (const c of name) h = (h * 31 + c.charCodeAt(0)) % 360;
+  return `hsl(${h}, 55%, 62%)`;
+}
+
+function esc(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function renderText(text) {
+  return esc(text).replace(/@([A-Za-z][A-Za-z0-9_-]*)/g, '<span class="mention">@$1</span>');
+}
+
+function addMsg(m) {
+  seenIds.add(m.id);
+  const el = document.createElement("div");
+  el.className = "msg";
+  el.id = "m" + m.id;
+  const color = colorFor(m.author);
+  el.innerHTML =
+    `<span class="badge" style="background:${color}22;color:${color};border:1px solid ${color}55">${esc(m.author)}</span>` +
+    `<div><div class="meta">${new Date(m.ts).toLocaleTimeString()}</div><div class="body">${renderText(m.text)}</div></div>`;
+  const box = document.getElementById("msgs");
+  box.appendChild(el);
+  box.scrollTop = box.scrollHeight;
+}
+
+function updateStatus() {
+  const s = document.getElementById("status");
+  const stop = document.getElementById("stop");
+  if (state.round_active) {
+    s.textContent = "round active" + (state.pending.length ? " — next: " + state.pending.join(", ") : "");
+    s.className = "active";
+    stop.style.display = "";
+  } else {
+    s.textContent = "idle";
+    s.className = "";
+    stop.style.display = "none";
+    document.querySelectorAll(".thinking").forEach(e => e.classList.remove("thinking"));
+  }
+}
+
+function send() {
+  const input = document.getElementById("input");
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = "";
+  fetch("/message", {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({ text })
+  }).then(r => { if (r.status === 401) promptForToken(); }).catch(() => {});
+}
+
+document.getElementById("send").onclick = send;
+document.getElementById("input").addEventListener("keydown", e => { if (e.key === "Enter") send(); });
+document.getElementById("stop").onclick = () => fetch("/stop", { method: "POST", headers: authHeaders() }).then(r => { if (r.status === 401) promptForToken(); });
+
+const es = new EventSource("/events");
+es.onmessage = e => {
+  let ev; try { ev = JSON.parse(e.data); } catch { return; }
+  if (ev.type === "message") {
+    addMsg(ev.message);
+  } else if (ev.type === "round") {
+    if (ev.state === "started") { state.round_active = true; state.pending = ev.agents || []; }
+    if (ev.state === "done" || ev.state === "stopped") { state.round_active = false; state.pending = []; }
+    updateStatus();
+    loadConfig(); // resync state (pending/spoken)
+  } else if (ev.type === "turn") {
+    if (ev.state === "thinking") {
+      const el = document.getElementById("m" + (seenIds.size ? Math.max(...seenIds) : 0));
+      // mark the newest message of this agent as thinking
+      const all = [...document.querySelectorAll(".msg")].filter(m =>
+        m.querySelector(".badge") && m.querySelector(".badge").textContent === ev.agent);
+      if (all.length) all[all.length - 1].classList.add("thinking");
+      state.round_active = true;
+      updateStatus();
+    }
+  }
+};
+loadConfig();
+</script>
+</body>
+</html>

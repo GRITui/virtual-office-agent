@@ -1,0 +1,44 @@
+{
+  "port": 8651,
+  "kanban_db": "~/.hermes/kanban/boards/team-room/kanban.db",
+  "api_base": "http://127.0.0.1:8642",
+  "key_file": "~/.hermes/.env",
+  "key_var": "API_SERVER_KEY",
+  "max_agents_per_round": 6,
+  "max_concurrent_agents": 3,
+  "history_window": 60,
+  "turn_timeout_s": 300,
+  "agents": [
+    {
+      "name": "product-owner",
+      "profile": "product-owner",
+      "color": "#e8b93d"
+    },
+    {
+      "name": "pixel-art-designer",
+      "profile": "pixel-art-designer",
+      "color": "#e05d5d"
+    },
+    {
+      "name": "ux-ui",
+      "profile": "ux-ui",
+      "color": "#5db8e0"
+    },
+    {
+      "name": "software-engineer",
+      "profile": "software-engineer",
+      "color": "#7ec96f"
+    },
+    {
+      "name": "qa-visual",
+      "profile": "qa-visual",
+      "color": "#c98fe0"
+    },
+    {
+      "name": "qa-journey",
+      "profile": "qa-journey",
+      "color": "#e09a5d"
+    }
+  ],
+  "auth_token": "CHANGE-ME"
+}

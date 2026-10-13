@@ -1,0 +1,887 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>team-room — web UI chat</title>
+<style>
+:root{
+  /* base palette */
+  --bg:#0f1115;--panel:#171a21;--line:#262b36;--text:#e6e9ef;--dim:#8b93a7;--accent:#3b82f6;--human:#22d3ee;
+  /* swift-style chrome: soft radii, spring motion, SF type scale.
+     Flat opaque chrome (no backdrop blur over the transcript); frosted glass is modal-only. */
+  --glass:rgba(23,26,33,.66);--glass-strong:rgba(15,17,21,.84);--blur:16px;
+  --r-s:8px;--r-m:12px;--r-l:16px;--r-pill:999px;
+  --sh-s:0 1px 2px rgba(0,0,0,.35);--sh-m:0 6px 20px rgba(0,0,0,.45);--sh-l:0 18px 48px rgba(0,0,0,.6);
+  --spring:cubic-bezier(.34,1.56,.64,1);--ease:cubic-bezier(.22,1,.36,1);--d1:120ms;--d2:220ms;
+  --f-11:11px;--f-12:12px;--f-13:13px;--f-14:14px;--f-16:16px;--f-18:18px;--f-20:20px;
+  /* surfaces (theme-aware) — t_fb075453 */
+  --input-bg:#0c0e12;--btn-bg:#20242e;--btn-bg-hover:#2a3140;--sel-bg:#232a37;--chip-img-bg:#12151c;--pill-ink:#0b0d10;--mchip-ink:#10131a;--office-bg:#0b0d12;
+  --ok:#7ec96f;--warn:#e8b93d;--err:#e05d5d;--err-strong:#ff6b6b;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font:14px/1.45 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+.app{display:flex;flex-direction:column;height:100%}
+header{display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--panel);box-shadow:var(--sh-s)}
+header .title{font-weight:700;font-size:var(--f-16);letter-spacing:-.2px}
+header .sub{color:var(--dim);font-size:12px}
+.nav{display:flex;gap:2px;margin-left:14px}
+.nav a{color:var(--dim);text-decoration:none;font-size:var(--f-13);padding:5px 11px;border-radius:var(--r-pill);transition:color var(--d1) var(--ease),background var(--d1) var(--ease)}
+.nav a:hover{color:var(--text);background:var(--btn-bg)}
+.nav a.on{color:var(--text);background:var(--btn-bg);font-weight:600}
+.pill{font-size:var(--f-12);padding:3px 10px;border-radius:var(--r-pill);border:1px solid var(--line);color:var(--dim);white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis;transition:background var(--d1) var(--ease),color var(--d1) var(--ease)}
+.authdot{font-size:12px;cursor:pointer;padding:0;line-height:1}.authdot.ok{color:var(--ok)}.authdot.err{color:var(--err)}
+.pill.active{color:var(--pill-ink);background:var(--ok);border-color:var(--ok);font-weight:600}
+.pill.thinking{color:var(--pill-ink);background:var(--warn);border-color:var(--warn);font-weight:600}
+.hist{display:flex;gap:6px;align-items:center;margin-left:auto}
+.hist input{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;padding:5px 8px;color:var(--text);font:inherit;font-size:12px;width:150px}
+.hist button{height:28px;padding:0 8px;font-size:12px}
+.banner{color:var(--dim);font-size:12px;padding:6px 10px;background:var(--panel);border:1px solid var(--line);border-radius:6px;margin-bottom:12px}
+.transcript{flex:1;overflow:auto;padding:16px 18px}
+.msg{margin:0 0 14px;max-width:860px}
+.msg .head{display:flex;align-items:baseline;gap:8px;margin-bottom:2px}
+.msg .who{font-weight:700}
+.msg .ts{color:var(--dim);font-size:11px}
+.msg .body{white-space:normal;word-wrap:break-word}
+.msg .body p{margin:0 0 6px}
+.msg .body pre{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;padding:8px 10px;overflow-x:auto;margin:0 0 6px}
+.msg .body code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;background:var(--btn-bg);border-radius:4px;padding:1px 4px;overflow-wrap:anywhere}
+.msg .body pre code{background:none;border:none;padding:0}
+.msg .body h1,.msg .body h2,.msg .body h3,.msg .body h4{margin:6px 0 4px;line-height:1.3}
+.msg .body h1{font-size:18px}.msg .body h2{font-size:16px}.msg .body h3{font-size:15px}.msg .body h4{font-size:14px}
+.msg .body ul,.msg .body ol{margin:0 0 6px;padding-left:20px}
+.msg .body li{margin:2px 0}
+.msg .body a{color:var(--accent);text-decoration:underline}
+.msg .body .mention{font-weight:700;padding:0 2px;border-radius:3px}
+.msg .body .mention.all{background:rgba(244,114,182,.16);border:1px solid rgba(244,114,182,.55);text-transform:uppercase;font-size:11px;letter-spacing:.4px;padding:0 4px}
+.msg.streaming .body{opacity:.9}
+.msg .body .dim{color:var(--dim)}
+.msg .tool{font-size:11px;color:var(--dim);margin-top:5px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.msg .tool .ic{color:var(--accent);margin-right:4px}
+.typing{display:inline-block;width:6px;height:13px;background:var(--accent);margin-left:3px;vertical-align:-2px;animation:trblink 1s steps(2) infinite}
+@keyframes trblink{50%{opacity:0}}
+.msg.human .who{color:var(--human)}
+.msg.mentions-me{box-shadow:inset 3px 0 0 var(--human)}
+.msg.flash{animation:trflash 1.3s ease}
+@keyframes trflash{0%{background:rgba(34,211,238,.30)}100%{background:transparent}}
+/* ---- copy-on-hover + code-block copy button (t_4ed07730) ---- */
+.msg .head .msg-copy{margin-left:auto;align-self:center;opacity:0;pointer-events:none;transition:opacity var(--d1) var(--ease);height:24px;padding:0 8px;font-size:11px;line-height:1}
+.msg:hover .head .msg-copy,.msg .head .msg-copy:focus-visible,.msg .head .msg-copy.ok{opacity:1;pointer-events:auto}
+.msg .head .msg-copy.ok{color:var(--ok)}
+.msg .body .code-wrap{position:relative;margin:0 0 6px}
+.msg .body .code-wrap>pre{margin:0}
+.msg .body .code-copy{position:absolute;top:6px;right:6px;opacity:0;pointer-events:none;transition:opacity var(--d1) var(--ease);height:24px;padding:0 8px;font-size:11px;line-height:1}
+.msg .body .code-wrap:hover .code-copy,.msg .body .code-copy:focus-visible,.msg .body .code-copy.ok{opacity:1;pointer-events:auto}
+.msg .body .code-copy.ok{color:var(--ok)}
+@media (hover:none){
+  .msg .head .msg-copy{opacity:.6;pointer-events:auto}
+  .msg .body .code-copy{opacity:.6;pointer-events:auto}
+}
+/* ---- multi-agent status strip + queue + HUD toasts (t_c1c0ae28) ---- */
+.agent-strip{display:flex;align-items:center;gap:5px;flex-wrap:wrap;min-height:22px}
+.achip{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 9px 0 7px;border-radius:var(--r-pill);border:1px solid var(--line);background:var(--btn-bg);font-size:11px;font-weight:600;white-space:nowrap;animation:achipin .25s var(--spring)}
+.achip .dot{width:7px;height:7px;border-radius:50%;flex:0 0 auto;animation:achipdot 1.1s ease-in-out infinite}
+.achip .st{color:var(--dim);font-weight:400}
+@keyframes achipin{from{transform:translateY(-5px) scale(.92);opacity:0}to{transform:none;opacity:1}}
+@keyframes achipdot{50%{opacity:.35}}
+.queue-lbl{display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--dim);white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+.queue-lbl b{font-weight:600}
+.toast-rack{position:fixed;top:54px;right:12px;z-index:130;display:flex;flex-direction:column;align-items:flex-end;gap:8px;pointer-events:none;max-width:340px}
+.toast{max-width:100%;background:var(--panel);border:1px solid var(--line);border-radius:var(--r-m);box-shadow:var(--sh-m);padding:9px 12px;font-size:var(--f-13);line-height:1.35;transform:translateX(calc(100% + 24px));opacity:0;transition:transform .32s var(--spring),opacity .25s var(--ease)}
+.toast.in{transform:none;opacity:1}
+.toast.out{transform:translateX(calc(100% + 24px));opacity:0;transition:transform .3s var(--ease),opacity .3s var(--ease)}
+.toast .t-ic{margin-right:6px}
+#mentionJump.has{border-color:var(--human);color:var(--human)}
+.composer{border-top:1px solid var(--line);background:var(--panel);padding:10px 14px;position:relative;box-shadow:0 -6px 20px rgba(0,0,0,.35)}
+.attach-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.chip{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 8px;border-radius:6px;background:var(--btn-bg);border:1px solid var(--line);font-size:12px}
+.chip .ic{font-size:13px}.chip .sz{color:var(--dim)}
+.chip .rm{cursor:pointer;color:var(--dim);padding:0 2px}
+.chip .rm:hover{color:var(--err-strong)}
+.chip.img{background:var(--chip-img-bg)}
+.chip.img .thumb{width:22px;height:22px;border-radius:4px;object-fit:cover}
+/* MVP-5: transcript file chips — clickable, image thumbnail, download/open. */
+.chip.filechip{cursor:pointer;height:auto;padding:3px 8px 3px 4px;transition:transform var(--d1) var(--spring),box-shadow var(--d1) var(--ease),border-color var(--d1) var(--ease)}
+.chip.filechip:hover{transform:translateY(-1px);box-shadow:var(--sh-s);border-color:var(--accent)}
+.chip.filechip .fthumb{width:40px;height:40px;border-radius:5px;object-fit:cover;background:var(--chip-img-bg);flex:none}
+.chip.filechip .fthumb-ph{width:40px;height:40px;border-radius:5px;background:var(--chip-img-bg);display:inline-flex;align-items:center;justify-content:center;font-size:16px;flex:none}
+.comp-top{display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap}
+.comp-top .pill{align-self:center}
+.row2{display:flex;gap:8px;align-items:stretch}
+textarea.input{flex:1;resize:none;min-height:38px;max-height:160px;background:var(--input-bg);border:1px solid var(--line);border-radius:8px;padding:9px 11px;color:var(--text);font:inherit}
+button{background:var(--btn-bg);border:1px solid var(--line);color:var(--text);border-radius:var(--r-s);height:38px;padding:0 14px;cursor:pointer;font:inherit;transition:transform var(--d1) var(--spring),background var(--d1) var(--ease),box-shadow var(--d1) var(--ease)}
+.row2 button{height:auto;min-height:38px}
+button:hover{background:var(--btn-bg-hover);transform:translateY(-1px);box-shadow:var(--sh-s)}
+button:active{transform:translateY(0);box-shadow:none}
+button.send{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+button.send:disabled{opacity:.5;cursor:default}
+.mention-pop{position:absolute;left:14px;bottom:96px;z-index:20;background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.5);overflow:hidden;min-width:260px;display:none}
+.mention-pop .row{display:flex;align-items:center;gap:8px;padding:0 10px;height:32px;cursor:pointer}
+.mention-pop .row.sel{background:var(--sel-bg)}
+.mention-pop .mchip{display:inline-flex;align-items:center;height:16px;padding:0 6px;border-radius:4px;font-size:12px;color:var(--mchip-ink);font-weight:600}
+.mention-pop .lbl{color:var(--dim);font-size:12px}
+.mention-pop .nomatch{color:var(--dim);font-size:12px;padding:0 10px;height:32px;display:flex;align-items:center}
+.hint{color:var(--dim);font-size:var(--f-11);margin-top:6px}
+/* ---- video-game layout: office scene left, chat right (Krit 00:12) ---- */
+.main{display:flex;flex:1;min-height:0}
+.office-pane{flex:0 0 66.667%;min-width:340px;border-right:1px solid var(--line);display:flex;flex-direction:column;background:var(--office-bg)}
+.office-frame{flex:1;width:100%;border:none;background:transparent;display:block;min-height:0}
+.office-cta{padding:10px 14px;border-top:1px solid var(--line);background:var(--panel)}
+.office-cta button{width:100%}
+.chat-pane{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0}
+
+.project-sel{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;color:var(--dim);font:inherit;font-size:12px;padding:4px 8px;cursor:not-allowed}
+/* kanban overlay — the "board in the office" gimmick CTA */
+.kanban-overlay{display:none;position:fixed;inset:0;z-index:100;background:rgba(0,0,0,.55);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+.kanban-overlay.open{display:flex;flex-direction:column}
+.ko-head{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:var(--glass-strong);backdrop-filter:blur(var(--blur));-webkit-backdrop-filter:blur(var(--blur));border-bottom:1px solid var(--line);box-shadow:var(--sh-s)}
+.ko-head span{font-weight:600;font-size:13px}
+.ko-frame{flex:1;border:none;background:var(--bg);min-height:0}
+@media (max-width:900px){
+  .main{flex-direction:column}
+  .office-pane{flex:0 0 auto;min-width:0;height:auto;border-right:none;border-bottom:1px solid var(--line)}
+  .office-frame{height:41.7vw;max-height:300px}
+  header{flex-wrap:wrap;row-gap:6px}
+  header .sub{display:none}
+  .hist{margin-left:0}
+  .hist input{width:110px}
+  /* mobile composer: pill lives in .comp-top (own status line above the input); input full-width, buttons wrap below (t_cd3cfb7e) */
+  .row2{flex-wrap:wrap}
+  .row2 textarea.input{order:1;flex:1 1 100%}
+  .row2 button{order:2}
+  .mention-pop{bottom:160px}
+  /* mobile: status row wraps under the pill; toasts span the width under the (wrapped) header */
+  .comp-top{flex-wrap:wrap}
+  .toast-rack{top:88px;right:10px;left:10px;align-items:stretch;max-width:none}
+}
+/* ---- settings drawer (t_fb075453): auth + export + theme consolidated ---- */
+.settings-btn{width:34px;height:34px;padding:0;font-size:16px;line-height:1;flex:0 0 auto}
+.settings-backdrop{display:none;position:fixed;inset:0;z-index:110;background:rgba(0,0,0,.45);backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px)}
+.settings-backdrop.open{display:block}
+.settings-drawer{position:fixed;top:0;right:0;bottom:0;width:300px;max-width:85vw;z-index:120;display:flex;flex-direction:column;background:var(--glass-strong);backdrop-filter:blur(var(--blur)) saturate(1.15);-webkit-backdrop-filter:blur(var(--blur)) saturate(1.15);border-left:1px solid var(--line);box-shadow:var(--sh-l);transform:translateX(100%);visibility:hidden;transition:transform var(--d2) var(--spring),visibility 0s var(--d2)}
+.settings-drawer.open{transform:translateX(0);visibility:visible;transition:transform var(--d2) var(--spring)}
+.sd-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--line)}
+.sd-head span{font-weight:700;font-size:var(--f-16);letter-spacing:-.2px}
+.sd-head button{width:30px;height:30px;padding:0;font-size:14px}
+.sd-body{flex:1;overflow:auto;padding:4px 16px 16px}
+.sd-sec{margin-top:14px}
+.sd-sec h3{margin:0 0 8px;font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--dim)}
+.sd-row{display:flex;align-items:center;gap:8px;width:100%;height:40px;padding:0 12px;font-size:var(--f-13);text-align:left}
+.sd-row:hover{background:var(--btn-bg-hover)}
+.sd-lbl{flex:1;color:var(--dim)}
+.theme-toggle{display:flex;gap:6px;background:var(--input-bg);border:1px solid var(--line);border-radius:var(--r-m);padding:4px}
+.theme-toggle button{flex:1;height:34px;padding:0 10px;font-size:var(--f-13)}
+.theme-toggle button.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+/* ---- light theme (t_fb075453) ---- */
+html[data-theme="light"]{
+  --bg:#f4f5f7;--panel:#ffffff;--line:#d9dde5;--text:#191c22;--dim:#5c6472;--accent:#2563eb;--human:#0e7490;
+  --glass:rgba(255,255,255,.72);--glass-strong:rgba(255,255,255,.9);
+  --input-bg:#eef0f4;--btn-bg:#e6e9ef;--btn-bg-hover:#d5dae3;--sel-bg:#dfe4ec;--chip-img-bg:#e2e6ee;--office-bg:#e9ebf0;
+  --sh-s:0 1px 2px rgba(0,0,0,.10);--sh-m:0 6px 20px rgba(0,0,0,.14);--sh-l:0 18px 48px rgba(0,0,0,.22);
+}
+</style>
+<script>document.documentElement.setAttribute("data-theme",localStorage.getItem("tr_theme")||"dark");</script>
+</head>
+<body>
+<div class="app">
+  <header>
+    <span class="title">🐴 team-room</span>
+    <span class="sub">web UI chat</span>
+    <nav class="nav">
+      <a href="/" class="on">Chat</a>
+      <a href="/board">Board</a>
+      <a href="/office">Office</a>
+    </nav>
+    <select class="project-sel" id="projectSwitcher" disabled title="project switching — backend pending (S4 item 3)">
+      <option>team-room</option>
+    </select>
+    <span class="hist">
+      <button id="mentionJump" title="Jump to a message that mentioned you">🔔 <span id="mentionCount">0</span></button>
+      <input id="search" type="search" placeholder="search…"/>
+      <button id="searchBtn" title="Search transcript">🔍</button>
+      <button id="settingsBtn" class="settings-btn" title="Settings" aria-label="Settings" aria-haspopup="dialog">⚙</button>
+    </span>
+  </header>
+  <div class="settings-backdrop" id="settingsBackdrop"></div>
+  <aside class="settings-drawer" id="settingsDrawer" role="dialog" aria-label="Settings" aria-hidden="true">
+    <div class="sd-head">
+      <span>Settings</span>
+      <button id="settingsClose" title="Close (Esc)">✕</button>
+    </div>
+    <div class="sd-body">
+      <section class="sd-sec">
+        <h3>Auth</h3>
+        <button id="authRow" class="sd-row auth-row" title="Click to (re)enter the auth token">
+          <span class="authdot" id="authdot">●</span>
+          <span class="sd-lbl" id="authLbl">auth status</span>
+        </button>
+      </section>
+      <section class="sd-sec">
+        <h3>Export</h3>
+        <button id="exportBtn" class="sd-row" title="Export the transcript as markdown">⬇ Export markdown</button>
+        <button id="exportJsonBtn" class="sd-row" title="Export the transcript as JSON">⬇ Export JSON</button>
+      </section>
+      <section class="sd-sec">
+        <h3>Appearance</h3>
+        <div class="theme-toggle" id="themeToggle" role="group" aria-label="Theme">
+          <button data-theme-opt="dark" class="on">🌙 Dark</button>
+          <button data-theme-opt="light">☀️ Light</button>
+        </div>
+      </section>
+    </div>
+  </aside>
+  <div class="main">
+    <div class="office-pane">
+      <iframe class="office-frame" id="officeFrame" src="/office" title="office scene"></iframe>
+      <div class="office-cta">
+        <button id="officeCta" title="Show the kanban board as an overlay">📋 open board</button>
+      </div>
+    </div>
+    <div class="chat-pane">
+      <div class="transcript" id="transcript"></div>
+      <div class="composer">
+        <div class="attach-row" id="attach"></div>
+        <div class="comp-top">
+          <span class="pill" id="pill">idle</span>
+          <div class="agent-strip" id="agentStrip"></div>
+          <span class="queue-lbl" id="queueLbl" hidden></span>
+        </div>
+        <div class="row2">
+          <button id="attachBtn" title="Attach file">📎</button>
+          <textarea class="input" id="input" placeholder="Message the room — @ to mention, paste an image, or attach a file"></textarea>
+          <button class="send" id="send">Send</button>
+        </div>
+        <div class="mention-pop" id="mentionPop"></div>
+        <input type="file" id="file" multiple hidden/>
+        <div class="hint">↑/↓ select · Tab/Enter commit · Esc close · @mention triggers a round · @all pings everyone</div>
+      </div>
+    </div>
+  </div>
+  <div class="kanban-overlay" id="kanbanOverlay">
+    <div class="ko-head">
+      <span>team-room · kanban</span>
+      <button id="koClose" title="Close (Esc)">✕</button>
+    </div>
+    <iframe class="ko-frame" id="koFrame" title="kanban board"></iframe>
+  </div>
+  <div class="toast-rack" id="toastRack" aria-live="polite"></div>
+</div>
+<script>
+// Same-origin: the room server serves this page, so relative URLs work on
+// tailnet/mobile too (a hardcoded 127.0.0.1:8650 breaks iPad/iPhone access).
+const API = "";
+const AGENTS = [
+  {handle:"product-owner", color:"#e8b93d"},
+  {handle:"pixel-art-designer", color:"#e05d5d"},
+  {handle:"ux-ui", color:"#5db8e0"},
+  {handle:"software-engineer", color:"#7ec96f"},
+  {handle:"qa-visual", color:"#c98fe0"},
+  {handle:"qa-journey", color:"#e09a5d"},
+];
+const HUMAN = "Krit";
+const HUMAN_COLOR = "#22d3ee"; // the human ("me") — distinct from all 6 agent hexes + @all
+const ALL_COLOR = "#f472b6"; // @all = broadcast, not an agent: own accent + bolder chip
+const HUMAN_MENTION_RE = new RegExp("@"+HUMAN.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"\\b","i");
+const colorOf = h => h==="all" ? ALL_COLOR : (h===HUMAN ? HUMAN_COLOR : (AGENTS.find(a=>a.handle===h)||{}).color || "#8b93a7");
+
+// Sprint 4: bearer-token auth. Prompt once, store in localStorage, send on
+// gated routes (/message, /upload). Re-prompt on a 401.
+let authToken = localStorage.getItem("tr_token");
+function authHeaders(extra){const h=Object.assign({},extra||{});if(authToken)h["Authorization"]="Bearer "+authToken;return h;}
+function updateAuthDot(){const d=document.getElementById("authdot");if(d){d.classList.toggle("ok",!!authToken);d.classList.toggle("err",!authToken);d.title=authToken?"auth: token set":"auth: no token — click to enter";}const l=document.getElementById("authLbl");if(l)l.textContent=authToken?"token set":"no token — click to enter";}
+function promptForToken(){const t=prompt("team-room auth token (config.json -> auth_token):");if(t){authToken=t.trim();localStorage.setItem("tr_token",authToken);}updateAuthDot();return !!authToken;}
+(async()=>{try{const h=await(await fetch(API+"/health")).json();if(h.auth_enabled&&!authToken)promptForToken();}catch(e){}})();
+const authRow=document.getElementById("authRow");
+if(authRow)authRow.onclick=promptForToken;
+updateAuthDot();
+
+const tr = document.getElementById("transcript");
+const input = document.getElementById("input");
+const sendBtn = document.getElementById("send");
+const pill = document.getElementById("pill");
+const pop = document.getElementById("mentionPop");
+const attachRow = document.getElementById("attach");
+const fileInput = document.getElementById("file");
+
+let attachments = [];
+let seenIds = new Set();
+let lastMsgId = 0; // MVP-2: highest confirmed message id (SSE reconnect resync)
+// MVP-4: windowed transcript — load the latest page on start, prepend older
+// pages on scroll-up. seenIds dedupe + the mention index work across the
+// loaded window; search stays a server-side full scan (/messages?q=).
+let hasMore = false; // older pages available
+let oldestLoadedId = 0; // lowest id in the loaded window
+let loadingOlder = false; // in-flight older-page load
+let searchMode = false; // search-results view (no pagination)
+const PAGE_SIZE = 100; // messages per page
+
+function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
+// ---- markdown render (self-contained, no CDN; XSS-safe: text is escaped, only known tags emitted) ----
+function mdInline(s){ // s is already escaped
+  s=s.replace(/`([^`]+)`/g,(m,c)=>"<code>"+c+"</code>");
+  s=s.replace(/\*\*([^*]+)\*\*/g,"<strong>$1</strong>");
+  s=s.replace(/(^|[^*])\*([^*]+)\*/g,"$1<em>$2</em>");
+  s=s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)"']+)/g,'<a href="$2" target="_blank" rel="noopener">$1</a>');
+  return s;
+}
+function md(text){
+  const lines=String(text==null?"":text).split("\n");
+  let html="",inCode=false,codeLang="",codeBuf=[],listType=null;
+  const closeList=()=>{if(listType){html+="</"+listType+">";listType=null;}};
+  for(let i=0;i<lines.length;i++){
+    const line=lines[i];
+    const fence=line.match(/^```(\w*)/);
+    if(fence){
+      if(!inCode){inCode=true;codeLang=fence[1]||"";codeBuf=[];closeList();}
+      else{inCode=false;html+="<pre><code"+(codeLang?' class="lang-'+esc(codeLang)+'"':"")+">"+esc(codeBuf.join("\n"))+"</code></pre>";}
+      continue;
+    }
+    if(inCode){codeBuf.push(line);continue;}
+    const h=line.match(/^(#{1,4})\s+(.*)$/);
+    if(h){closeList();const l=h[1].length;html+="<h"+l+">"+mdInline(esc(h[2]))+"</h"+l+">";continue;}
+    const ul=line.match(/^\s*[-*]\s+(.*)$/);
+    if(ul){if(listType!=="ul"){closeList();html+="<ul>";listType="ul";}html+="<li>"+mdInline(esc(ul[1]))+"</li>";continue;}
+    const ol=line.match(/^\s*\d+\.\s+(.*)$/);
+    if(ol){if(listType!=="ol"){closeList();html+="<ol>";listType="ol";}html+="<li>"+mdInline(esc(ol[1]))+"</li>";continue;}
+    if(line.trim()===""){closeList();continue;}
+    closeList();
+    html+="<p>"+mdInline(esc(line))+"</p>";
+  }
+  if(inCode){html+="<pre><code>"+esc(codeBuf.join("\n"))+"</code></pre>";}
+  closeList();
+  return html;
+}
+function hlMentionsInHtml(html){ // color @mentions only in text nodes (never inside tags/attributes)
+  return html.replace(/>([^<]*)</g,(m,text)=>{
+    const colored=text.replace(/@([A-Za-z][A-Za-z0-9_-]*)/g,(mm,h)=>{
+      const c=colorOf(h);
+      return (c&&c!=="#8b93a7")?'<span class="mention'+(h==="all"?" all":"")+'" style="color:'+c+'">'+mm+"</span>":mm;
+    });
+    return ">"+colored+"<";
+  });
+}
+function hlMentions(text){
+  return esc(text).replace(/@([A-Za-z][A-Za-z0-9_-]*)/g,(m,h)=>{
+    const c = colorOf(h);
+    return (c && c!=="#8b93a7") ? `<span class="mention${h==="all"?" all":""}" style="color:${c}">${m}</span>` : m;
+  });
+}
+function ts(iso){const d=new Date(iso);return d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'});}
+// ---- copy to clipboard (t_4ed07730): message copy-on-hover + code-block copy.
+//      navigator.clipboard with an execCommand fallback for non-secure contexts. ----
+async function copyText(text,btn){
+  let ok=false;
+  const fallback=()=>{try{const ta=document.createElement("textarea");ta.value=text;ta.setAttribute("readonly","");ta.style.position="fixed";ta.style.left="-9999px";ta.style.opacity="0";document.body.appendChild(ta);ta.focus();ta.select();ok=document.execCommand("copy");ta.remove();}catch(e){ok=false;}};
+  try{
+    if(navigator.clipboard&&navigator.clipboard.writeText){await navigator.clipboard.writeText(text);ok=true;}
+    else fallback();
+  }catch(e){fallback();}
+  if(btn){
+    const orig=btn.dataset.label||btn.textContent;btn.dataset.label=orig;
+    btn.textContent=ok?"✓":"✗";btn.classList.toggle("ok",ok);
+    setTimeout(()=>{btn.textContent=orig;btn.classList.remove("ok");},1200);
+  }
+  return ok;
+}
+// ---- MVP-5: transcript file chips -> authed /files/<id> fetch, image thumbnail,
+//      click = open image in new tab / download non-image. Object URLs cached by id.
+//      An <img src> can't send the Bearer header, so we fetch with authHeaders()
+//      and hand the <img> a blob object URL. ----
+const fileBlobCache=new Map(); // id -> objectURL
+function isImageRef(r){
+  const mime=(r&&r.mime)||"";
+  if(mime.toLowerCase().startsWith("image/"))return true;
+  return /\.(png|jpe?g|gif|webp|bmp|svg|avif)$/i.test((r&&r.name)||"");
+}
+async function fileObjectUrl(id,interactive){
+  if(!id)return null;
+  if(fileBlobCache.has(id))return fileBlobCache.get(id);
+  let resp;
+  try{resp=await fetch(API+"/files/"+encodeURIComponent(id),{headers:authHeaders()});}
+  catch(e){return null;}
+  if(resp.status===401&&interactive){promptForToken();return null;}
+  if(!resp.ok)return null;
+  const blob=await resp.blob();
+  const url=URL.createObjectURL(blob);
+  fileBlobCache.set(id,url);
+  return url;
+}
+function makeMsgEl(m){
+  if(seenIds.has(m.id))return null; seenIds.add(m.id);
+  if(typeof m.id==="number"&&m.id>lastMsgId)lastMsgId=m.id;
+  const el=document.createElement("div");
+  const mentionsMe=HUMAN_MENTION_RE.test(m.text||"");
+  el.className="msg"+(m.author===HUMAN?" human":"")+(mentionsMe?" mentions-me":"");
+  const who=document.createElement("span");who.className="who";
+  who.style.color = colorOf(m.author);
+  who.textContent=m.author;
+  const t=document.createElement("span");t.className="ts";t.textContent=ts(m.ts);
+  const head=document.createElement("div");head.className="head";head.append(who,t);
+  const copyBtn=document.createElement("button");
+  copyBtn.type="button";copyBtn.className="msg-copy";copyBtn.textContent="📋";
+  copyBtn.title="Copy message";copyBtn.setAttribute("aria-label","Copy message");
+  copyBtn.onclick=()=>copyText(m.text||"",copyBtn);
+  head.appendChild(copyBtn);
+  const body=document.createElement("div");body.className="body";body.innerHTML=hlMentionsInHtml(md(m.text));
+  body.querySelectorAll("pre").forEach(pre=>{
+    const wrap=document.createElement("div");wrap.className="code-wrap";
+    pre.parentNode.insertBefore(wrap,pre);wrap.appendChild(pre);
+    const cb=document.createElement("button");
+    cb.type="button";cb.className="code-copy";cb.textContent="📋";
+    cb.title="Copy code";cb.setAttribute("aria-label","Copy code");
+    cb.onclick=e=>{e.stopPropagation();const code=pre.querySelector("code");copyText(code?code.textContent:pre.textContent,cb);};
+    wrap.appendChild(cb);
+  });
+  el.append(head,body);
+  if(m.file_refs&&m.file_refs.length){
+    const fr=document.createElement("div");fr.className="attach-row";fr.style.marginTop="6px";
+    m.file_refs.forEach(r=>{
+      const isStr=(typeof r==="string");
+      const id=isStr?r:r.id;
+      const name=isStr?r:(r.name||"file");
+      const isImg=isImageRef(isStr?{name:r}:r);
+      const c=document.createElement("span");c.className="chip filechip";
+      c.innerHTML=(isImg?'<span class="fthumb-ph">🖼️</span>':'<span class="ic">📎</span>')+'<span>'+esc(name)+'</span>';
+      c.title=isImg?"Open image":"Download "+name;
+      c.onclick=async()=>{
+        const url=await fileObjectUrl(id,true);
+        if(!url){c.title="unavailable (auth?)";return;}
+        if(isImg){window.open(url,"_blank");}
+        else{const a=document.createElement("a");a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();}
+      };
+      if(isImg){
+        fileObjectUrl(id,false).then(url=>{
+          if(!url)return;
+          const ph=c.querySelector(".fthumb-ph");if(!ph)return;
+          const img=document.createElement("img");img.className="fthumb";img.alt=name;img.src=url;
+          ph.replaceWith(img);
+        });
+      }
+      fr.appendChild(c);
+    });
+    el.appendChild(fr);
+  }
+  return el;
+}
+function addMsg(m,scroll){
+  if(scroll===undefined)scroll=true;
+  const el=makeMsgEl(m);
+  if(el){tr.appendChild(el);if(scroll)tr.scrollTop=tr.scrollHeight;}
+}
+function prependMsg(m){ // MVP-4: insert at the top (older page above the window)
+  const el=makeMsgEl(m);
+  if(el)tr.insertBefore(el,tr.firstChild);
+}
+function setPill(state){
+  pill.className="pill";
+  if(state==="active"){pill.classList.add("active");pill.textContent="● round active";}
+  else {pill.textContent="idle";}
+}
+// ---- multi-agent status strip + queue (t_c1c0ae28): every active agent gets
+//      its own chip; the queue label shows who's next (server `pending`). ----
+const activeAgents=new Map(); // agent -> "thinking"|"acting"|"typing"
+let queue=[];
+function renderStrip(){
+  const s=document.getElementById("agentStrip");
+  s.innerHTML="";
+  for(const [agent,kind] of activeAgents){
+    const c=document.createElement("span");c.className="achip";
+    const c2=colorOf(agent);
+    c.style.borderColor=c2+"66";
+    const label=kind==="acting"?"acting 🔧":kind==="typing"?"typing…":"thinking…";
+    c.innerHTML='<span class="dot" style="background:'+c2+'"></span>'+esc(agent)+'<span class="st">'+label+'</span>';
+    s.appendChild(c);
+  }
+  const q=document.getElementById("queueLbl");
+  if(queue.length){
+    q.hidden=false;
+    q.innerHTML='next: '+queue.map(n=>'<b style="color:'+colorOf(n)+'">'+esc(n)+'</b>').join(", ");
+  }else q.hidden=true;
+}
+function setAgentStatus(agent,kind){
+  if(activeAgents.get(agent)===kind)return;
+  activeAgents.set(agent,kind);
+  renderStrip();
+}
+// ---- HUD toasts (t_c1c0ae28): spring slide-in, 2s, non-blocking (pointer-events:none).
+//      Info only — Send/Stop stay inline in the composer, never in a toast. ----
+const toastRack=document.getElementById("toastRack");
+function toast(ic,html,ms){
+  ms=ms||2000;
+  const t=document.createElement("div");t.className="toast";
+  t.innerHTML='<span class="t-ic">'+ic+'</span><span class="t-tx">'+html+'</span>';
+  toastRack.appendChild(t);
+  while(toastRack.children.length>3)toastRack.firstChild.remove();
+  requestAnimationFrame(()=>requestAnimationFrame(()=>t.classList.add("in")));
+  setTimeout(()=>{t.classList.add("out");setTimeout(()=>t.remove(),350);},ms);
+}
+
+// ---- streaming render (turn_delta: text -> live bubble, tool -> activity).
+//      Multi-agent (t_c1c0ae28): one live bubble per agent, so concurrent
+//      turns never clobber each other (the "only 1 avatar actioning" fix). ----
+const streams=new Map(); // agent -> {agent,el,bodyEl,toolEl,text}
+function startStream(agent){
+  if(streams.has(agent))return streams.get(agent);
+  const el=document.createElement("div");el.className="msg streaming";
+  const head=document.createElement("div");head.className="head";
+  const who=document.createElement("span");who.className="who";who.style.color=colorOf(agent);who.textContent=agent;
+  const t=document.createElement("span");t.className="ts";t.textContent="…";
+  head.append(who,t);
+  const body=document.createElement("div");body.className="body";body.innerHTML='<span class="dim">thinking…</span>';
+  const tool=document.createElement("div");tool.className="tool";tool.style.display="none";
+  el.append(head,body,tool);tr.appendChild(el);tr.scrollTop=tr.scrollHeight;
+  const s={agent,el,bodyEl:body,toolEl:tool,text:""};
+  streams.set(agent,s);
+  return s;
+}
+function appendStream(ev){
+  const s=startStream(ev.agent);
+  if(ev.kind==="text"){
+    s.text+=ev.delta;
+    s.bodyEl.innerHTML=hlMentionsInHtml(md(s.text))+'<span class="typing"></span>';
+    tr.scrollTop=tr.scrollHeight;
+  }else if(ev.kind==="tool"){
+    s.toolEl.style.display="block";
+    s.toolEl.innerHTML='<span class="ic">🔧</span>'+esc(ev.delta).slice(0,160);
+    tr.scrollTop=tr.scrollHeight;
+  }
+}
+function finishStream(agent){ // agent=null -> all
+  const keys=agent==null?[...streams.keys()]:[agent];
+  keys.forEach(a=>{
+    const s=streams.get(a);
+    if(s&&s.el&&s.el.parentNode)s.el.remove();
+    streams.delete(a);
+  });
+}
+
+async function load(){
+  const r=await fetch(API+"/messages?limit="+PAGE_SIZE,{headers:authHeaders()});
+  if(r.status===401){if(promptForToken())return load();return;}
+  const d=await r.json();
+  seenIds=new Set();tr.innerHTML="";
+  searchMode=false;
+  // MVP-4: windowed render — d.messages is newest-first; reverse to ascending
+  // (oldest at top), append without per-msg scroll, then scroll to bottom once.
+  [...d.messages].reverse().forEach(m=>addMsg(m,false));
+  tr.scrollTop=tr.scrollHeight;
+  hasMore=!!d.has_more;
+  oldestLoadedId=d.messages.length?d.messages[d.messages.length-1].id:0;
+  refreshMentionIndex();
+  setPill(d.state.round_active?"active":"idle");
+  queue=(d.state&&d.state.pending)||[];
+  renderStrip();
+  requestAnimationFrame(maybeFillTop);
+}
+// MVP-4: prepend older pages on scroll-up. maybeFillTop triggers loadOlder when
+// the user is near the top (or the window doesn't fill the viewport); loadOlder
+// fetches the next older page, inserts it at the top, and restores the scroll
+// position (no jank). searchMode (search results) never paginates.
+function maybeFillTop(){
+  if(searchMode||loadingOlder||!hasMore)return;
+  if(tr.scrollTop<80||tr.scrollHeight<=tr.clientHeight+80)loadOlder();
+}
+async function loadOlder(){
+  if(searchMode||loadingOlder||!hasMore)return;
+  loadingOlder=true;
+  const prevH=tr.scrollHeight,prevTop=tr.scrollTop;
+  try{
+    const r=await fetch(API+"/messages?before="+(oldestLoadedId-1)+"&limit="+PAGE_SIZE,{headers:authHeaders()});
+    if(!r.ok)return;
+    const d=await r.json();
+    // d.messages is newest-first; inserting each at the top in that order
+    // yields the ascending final order (older page above the current window).
+    d.messages.forEach(prependMsg);
+    hasMore=!!d.has_more;
+    if(d.messages.length)oldestLoadedId=d.messages[d.messages.length-1].id;
+    tr.scrollTop=prevTop+(tr.scrollHeight-prevH); // keep the reading position
+    refreshMentionIndex();
+  }catch(e){/* link down — retry on the next scroll */}
+  finally{loadingOlder=false;maybeFillTop();}
+}
+tr.addEventListener("scroll",maybeFillTop);
+let sseHandler=null; // exposed for white-box verification (drives the real handler)
+// ---- MVP-2: SSE reconnect resync ----
+// EventSource auto-reconnects to /events, but messages posted during the
+// outage window are lost until a manual reload. On reconnect (onopen after
+// the first), refetch /messages?since=<lastMsgId> and merge into the
+// transcript — addMsg dedupes via seenIds. While the resync fetch is in
+// flight, live messages are queued (resyncQueue) and applied after the
+// batch, so transcript order (id ascending) is preserved.
+let resyncing=false;
+let resyncQueue=[];
+function handleSseMessage(m){
+  const a=m.author;
+  if(streams.has(a))finishStream(a);
+  if(activeAgents.has(a)){activeAgents.delete(a);renderStrip();}
+  addMsg(m);refreshMentionIndex();
+}
+async function resync(){
+  if(resyncing)return;
+  resyncing=true;
+  try{
+    const r=await fetch(API+"/messages?since="+lastMsgId,{headers:authHeaders()});
+    if(!r.ok)return;
+    const d=await r.json();
+    (d.messages||[]).forEach(addMsg);
+    resyncQueue.forEach(handleSseMessage); // newer ids than the batch; deduped
+    resyncQueue=[];
+    refreshMentionIndex();
+  }catch(e){/* link still down — retry on the next reconnect */}
+  finally{resyncing=false;}
+}
+function connectSSE(){
+  if(!authToken)promptForToken(); // EventSource can't send headers — token rides the URL
+  const es=new EventSource(API+"/events"+(authToken?"?token="+encodeURIComponent(authToken):""));
+  sseHandler=e=>{
+    let ev;try{ev=JSON.parse(e.data);}catch{return;}
+    if(ev.type==="message"){
+      if(resyncing){resyncQueue.push(ev.message);return;}
+      handleSseMessage(ev.message);
+    }
+    else if(ev.type==="turn_delta"){
+      setAgentStatus(ev.agent,ev.kind==="tool"?"acting":ev.kind==="reasoning"?"thinking":"typing");
+      appendStream(ev);
+    }
+    else if(ev.type==="round"){
+      if(ev.state==="started"){
+        setPill("active");
+        queue=ev.agents||[];renderStrip();
+        toast("🚀","Round started — "+(queue.length?queue.map(esc).join(", "):""));
+      }
+      else if(ev.state==="stopping"){
+        setPill("active");
+      }
+      else{ // done | stopped
+        setPill("idle");
+        queue=[];activeAgents.clear();renderStrip();
+        finishStream(null);
+      }
+    }
+    else if(ev.type==="turn"){
+      if(ev.state==="thinking"){
+        startStream(ev.agent);
+        setAgentStatus(ev.agent,"thinking");
+        setPill("active");
+        // the server pops the agent from `pending` before this event —
+        // mirror it so the queue label shows who's actually next
+        queue=queue.filter(n=>n!==ev.agent);renderStrip();
+      }
+    }
+    else if(ev.type==="kanban"){
+      toast("📋","Board updated — "+(ev.total!=null?ev.total+" cards":""));
+    }
+  };
+  es.onmessage=sseHandler;
+  let firstOpen=true;
+  es.onopen=()=>{
+    if(firstOpen){firstOpen=false;return;} // initial connect: load() fetched everything
+    resync();
+  };
+}
+
+// ---- @mention auto-suggest ----
+let mention={active:false,query:"",start:-1,results:[],sel:0};
+function tokenAtCaret(){
+  const pos=input.selectionStart;const val=input.value;
+  const before=val.slice(0,pos);
+  const m=before.match(/@([A-Za-z0-9_-]*)$/);
+  if(!m)return null;
+  const idx=before.length-m[0].length;
+  if(idx>0 && /\w/.test(before[idx-1]))return null;
+  return {query:m[1],start:idx};
+}
+function fuzzy(q){
+  const res=[];const qq=q.toLowerCase();
+  const all={handle:"all",color:ALL_COLOR};
+  if(!qq||"all".startsWith(qq))res.push({a:all,score:1,type:"prefix"});
+  for(const a of AGENTS){
+    const h=a.handle.toLowerCase();
+    if(!qq){res.push({a,score:1,type:"all"});continue;}
+    if(h.startsWith(qq)){res.push({a,score:1,type:"prefix"});continue;}
+    let qi=0;for(let i=0;i<h.length&&qi<qq.length;i++)if(h[i]===qq[qi])qi++;
+    if(qi===qq.length)res.push({a,score:0.5,type:"subseq"});
+  }
+  res.sort((x,y)=>y.score-x.score);
+  return res;
+}
+function renderPop(){
+  if(!mention.active){pop.style.display="none";return;}
+  pop.style.display="block";pop.innerHTML="";
+  if(mention.results.length===0){
+    const n=document.createElement("div");n.className="nomatch";n.textContent="no match";pop.appendChild(n);return;
+  }
+  mention.results.forEach((r,i)=>{
+    const row=document.createElement("div");row.className="row"+(i===mention.sel?" sel":"");
+    row.innerHTML=`<span class="mchip" style="background:${r.a.color}">@${r.a.handle}</span><span class="lbl">${r.a.handle}</span>`;
+    row.onmousedown=e=>{e.preventDefault();commitMention(i);};
+    pop.appendChild(row);
+  });
+}
+function updateMention(){
+  const t=tokenAtCaret();
+  if(!t){mention.active=false;renderPop();return;}
+  mention.active=true;mention.query=t.query;mention.start=t.start;
+  mention.results=fuzzy(t.query);mention.sel=0;renderPop();
+}
+function moveSel(d){
+  if(!mention.active||!mention.results.length)return;
+  mention.sel=(mention.sel+d+mention.results.length)%mention.results.length;renderPop();
+}
+function commitMention(i){
+  const r=mention.results[i];if(!r)return;
+  const pos=input.selectionStart;const val=input.value;
+  const before=val.slice(0,mention.start);const after=val.slice(pos);
+  input.value=before+"@"+r.a.handle+" "+after;
+  const np=before.length+1+r.a.handle.length+1;
+  input.setSelectionRange(np,np);
+  mention.active=false;renderPop();input.focus();
+}
+function closeMention(){mention.active=false;renderPop();}
+
+input.addEventListener("input",updateMention);
+input.addEventListener("keydown",e=>{
+  if(mention.active){
+    if(e.key==="ArrowDown"){e.preventDefault();moveSel(1);return;}
+    if(e.key==="ArrowUp"){e.preventDefault();moveSel(-1);return;}
+    if(e.key==="Tab"||e.key==="Enter"){e.preventDefault();commitMention(mention.sel);return;}
+    if(e.key==="Escape"){e.preventDefault();closeMention();return;}
+  }
+  if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send();}
+});
+input.addEventListener("blur",()=>setTimeout(closeMention,150));
+
+// ---- attach + paste ----
+document.getElementById("attachBtn").onclick=()=>fileInput.click();
+fileInput.onchange=()=>{[...fileInput.files].forEach(addFile);fileInput.value="";};
+function addFile(f){
+  const att={kind:f.type&&f.type.startsWith("image/")?"image":"file",name:f.name,size:f.size,mime:f.type||""};
+  const rd=new FileReader();
+  rd.onload=()=>{att.dataUrl=rd.result;att.b64=rd.result.split(",")[1]||"";renderAttach();};
+  rd.readAsDataURL(f);
+  attachments.push(att);renderAttach();
+}
+input.addEventListener("paste",e=>{
+  const items=e.clipboardData&&e.clipboardData.items;
+  if(!items)return;
+  for(const it of items){if(it.kind==="file"&&it.type){const f=it.getAsFile();if(f)addFile(f);}}
+});
+function renderAttach(){
+  attachRow.style.display=attachments.length?"flex":"none";
+  attachRow.innerHTML="";
+  attachments.forEach((a,i)=>{
+    const c=document.createElement("span");c.className="chip"+(a.kind==="image"?" img":"");
+    c.innerHTML=(a.kind==="image"&&a.dataUrl?`<img class="thumb" src="${a.dataUrl}">`:`<span class="ic">📎</span>`)+
+      `<span>${esc(a.name)}</span>`+(a.size?`<span class="sz">${fmtSize(a.size)}</span>`:"")+
+      `<span class="rm" data-i="${i}">✕</span>`;
+    c.querySelector(".rm").onclick=()=>{attachments.splice(i,1);renderAttach();};
+    attachRow.appendChild(c);
+  });
+}
+function fmtSize(b){if(b<1024)return b+" B";if(b<1048576)return (b/1024).toFixed(0)+" KB";return (b/1048576).toFixed(1)+" MB";}
+
+// ---- send ----
+async function send(){
+  const text=input.value.trim();
+  if(!text&&attachments.length===0)return;
+  sendBtn.disabled=true;
+  try{
+    // Sprint 4: real file ingestion — upload each attachment, collect file ids.
+    const files=[];
+    for(const a of attachments){
+      if(!a.b64)continue;
+      const up=await fetch(API+"/upload",{method:"POST",headers:authHeaders({"Content-Type":"application/json"}),body:JSON.stringify({name:a.name,data_base64:a.b64,mime:a.mime||""})});
+      if(up.status===401){promptForToken();alert("auth token missing or wrong — re-entered prompt");return;}
+      const ud=await up.json();
+      if(ud.ok&&ud.file&&ud.file.id)files.push(ud.file.id);
+    }
+    const payload={text};
+    if(files.length)payload.files=files;
+    const r=await fetch(API+"/message",{method:"POST",headers:authHeaders({"Content-Type":"application/json"}),body:JSON.stringify(payload)});
+    if(r.status===401){promptForToken();alert("auth token missing or wrong — re-entered prompt");return;}
+    await r.json();
+    input.value="";attachments=[];renderAttach();updateMention();
+  }catch(e){alert("send failed: "+e);}
+  finally{sendBtn.disabled=false;input.focus();}
+}
+sendBtn.onclick=send;
+
+// ---- history: search + export ----
+const searchInput=document.getElementById("search");
+document.getElementById("searchBtn").onclick=doSearch;
+searchInput.addEventListener("keydown",e=>{if(e.key==="Enter")doSearch();});
+document.getElementById("exportBtn").onclick=()=>doExport("md");
+document.getElementById("exportJsonBtn").onclick=()=>doExport("json");
+async function doSearch(){
+  const q=searchInput.value.trim();
+  if(!q){load();return;}
+  const r=await fetch(API+"/messages?q="+encodeURIComponent(q),{headers:authHeaders()});
+  if(r.status===401){if(promptForToken())return doSearch();return;}
+  const d=await r.json();
+  seenIds=new Set();tr.innerHTML="";
+  searchMode=true;hasMore=false;oldestLoadedId=0; // no pagination in search view
+  const b=document.createElement("div");b.className="banner";
+  b.textContent='search: "'+q+'" — '+d.count+" match"+(d.count===1?"":"es");
+  tr.appendChild(b);
+  d.messages.forEach(m=>addMsg(m,false));tr.scrollTop=tr.scrollHeight;refreshMentionIndex();
+}
+function doExport(fmt){
+  fetch(API+"/export?format="+fmt,{headers:authHeaders()}).then(r=>{
+    if(r.status===401){promptForToken();return null;}
+    return r.text();
+  }).then(t=>{
+    if(t==null)return;
+    const blob=new Blob([t],{type:fmt==="md"?"text/markdown":"application/json"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");a.href=url;a.download="team-room."+fmt;
+    document.body.appendChild(a);a.click();a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+  });
+}
+
+// ---- jump to "mentioned me" messages (Krit: hop to where an agent tagged me) ----
+let mentionEls=[];let mentionCursor=-1;
+function refreshMentionIndex(){
+  mentionEls=[...tr.querySelectorAll(".msg.mentions-me")];
+  const c=document.getElementById("mentionCount");if(c)c.textContent=mentionEls.length;
+  const b=document.getElementById("mentionJump");if(b)b.classList.toggle("has",mentionEls.length>0);
+}
+function jumpMention(){
+  if(!mentionEls.length)return;
+  mentionCursor=mentionCursor<0?mentionEls.length-1:(mentionCursor-1+mentionEls.length)%mentionEls.length;
+  const el=mentionEls[mentionCursor];
+  el.scrollIntoView({behavior:"smooth",block:"center"});
+  el.classList.remove("flash");void el.offsetWidth;el.classList.add("flash");
+  setTimeout(()=>el.classList.remove("flash"),1300);
+}
+document.getElementById("mentionJump").onclick=jumpMention;
+
+// ---- kanban overlay (the "board in the office" gimmick CTA) ----
+const ko=document.getElementById("kanbanOverlay");
+const koFrame=document.getElementById("koFrame");
+function openKanban(){koFrame.src="/board";ko.classList.add("open");}
+function closeKanban(){ko.classList.remove("open");koFrame.src="about:blank";}
+document.getElementById("officeCta").onclick=openKanban;
+window.addEventListener("message",e=>{if(e.data&&e.data.type==="team-room:open-kanban")openKanban();});
+document.getElementById("koClose").onclick=closeKanban;
+document.addEventListener("keydown",e=>{if(e.key==="Escape"&&ko.classList.contains("open"))closeKanban();});
+
+// ---- settings drawer (t_fb075453): auth + export + theme consolidated ----
+const settingsDrawer=document.getElementById("settingsDrawer");
+const settingsBackdrop=document.getElementById("settingsBackdrop");
+function openSettings(){settingsDrawer.classList.add("open");settingsDrawer.setAttribute("aria-hidden","false");settingsBackdrop.classList.add("open");}
+function closeSettings(){settingsDrawer.classList.remove("open");settingsDrawer.setAttribute("aria-hidden","true");settingsBackdrop.classList.remove("open");}
+document.getElementById("settingsBtn").onclick=openSettings;
+document.getElementById("settingsClose").onclick=closeSettings;
+settingsBackdrop.onclick=closeSettings;
+document.addEventListener("keydown",e=>{if(e.key==="Escape"&&settingsDrawer.classList.contains("open"))closeSettings();});
+// theme toggle (light/dark), persisted to localStorage
+function applyThemeUI(t){const tt=document.getElementById("themeToggle");if(tt)tt.querySelectorAll("button").forEach(b=>b.classList.toggle("on",b.dataset.themeOpt===t));}
+function setTheme(t){document.documentElement.setAttribute("data-theme",t);localStorage.setItem("tr_theme",t);applyThemeUI(t);}
+(function(){const tt=document.getElementById("themeToggle");if(!tt)return;const cur=document.documentElement.getAttribute("data-theme")||"dark";applyThemeUI(cur);tt.querySelectorAll("button").forEach(b=>b.onclick=()=>setTheme(b.dataset.themeOpt));})();
+
+renderAttach(); // hide the empty chip row on load
+load().then(connectSSE);
+</script>
+</body>
+</html>

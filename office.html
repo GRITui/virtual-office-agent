@@ -1,0 +1,1133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>team-room office</title>
+<style>
+  :root{
+    --bg:#0f1218; --panel:#161b24; --line:#262b34; --ink:#e6e9ef;
+    --dim:#8b93a3; --good:#7ec96f; --busy:#e8b93d; --work:#5db8e0;
+    --type:#c98fe0; --bad:#e05d5d;
+    --drill-w:min(380px,44vw);   /* drill-in panel width (desktop) */
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:var(--bg); color:var(--ink);
+    font:14px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;
+    display:flex; align-items:center; align-items:safe center; justify-content:center;
+  }
+  /* mobile: pin the scene to the top so the drill-in bottom sheet (which covers
+     the scene it describes) still leaves the board/top of the scene readable */
+  @media (max-width:520px){ body{align-items:flex-start; padding:10px 0 0} }
+  .wrap{width:min(860px,96vw)}
+  .head{display:flex; align-items:center; justify-content:space-between;
+    padding:10px 14px; border:1px solid var(--line); border-bottom:none;
+    border-radius:10px 10px 0 0; background:var(--panel)}
+  .head h1{font-size:13px; margin:0; letter-spacing:.06em; text-transform:uppercase; color:var(--dim)}
+  /* shared nav — same links/labels as the combined page (webui/index.html) */
+  .head .nav{display:flex;gap:2px}
+  .head .nav a{color:var(--dim);text-decoration:none;font-size:12px;padding:4px 11px;border-radius:999px;transition:color .12s ease,background .12s ease}
+  .head .nav a:hover{color:var(--ink);background:#20242e}
+  .head .nav a.on{color:var(--ink);background:#20242e;font-weight:600}
+  .pill{font-size:12px; padding:3px 10px; border-radius:999px; border:1px solid var(--line);
+    color:var(--dim); background:#0c0f14}
+  .pill.live{color:var(--good); border-color:var(--good)}
+  .stage{border:1px solid var(--line); border-radius:0 0 0 0;
+    background:var(--panel); padding:14px; display:flex; justify-content:center}
+  /* scene: native 192x168 (deep office: wall + floor), scales to pane width, pixel-perfect */
+  .office{position:relative; width:100%; max-width:768px; aspect-ratio:192/168}
+  #env{display:block; width:100%; height:100%;
+    image-rendering:pixelated; image-rendering:crisp-edges}
+  /* 2x3 desk grid (t_e20b6083): slot = 64x60 native (33.3333% x 35.7143% of 192x168),
+     positioned per col/row inline. Inner % values are relative to the 64x60 slot. */
+  .slot{position:absolute; width:33.3333%; height:35.7143%}
+  .fig{position:absolute; left:37.5%; top:23.3333%; width:25%; height:26.6667%;
+    image-rendering:pixelated; image-rendering:crisp-edges}
+  .bubble{display:none; position:absolute; bottom:83.3333%; left:50%; transform:translateX(-50%);
+    width:max-content; max-width:170px; background:#0c0f14; border:1px solid var(--line);
+    border-radius:8px; padding:3px 8px; font-size:11px; line-height:1.25; color:var(--ink);
+    white-space:nowrap; z-index:4}
+  .bubble:after{content:""; position:absolute; left:50%; bottom:-5px; transform:translateX(-50%);
+    border:5px solid transparent; border-top-color:var(--line)}
+  .slot.on .bubble{display:block}
+  .flag{display:none; position:absolute; top:3.3333%; left:37.5%; font-size:12px; line-height:1;
+    z-index:3; filter:saturate(1.1) drop-shadow(0 0 1px #000)}
+  .slot.blocked .flag{display:block}
+  .name{position:absolute; top:75%; left:0; width:100%;
+    font-size:10px; color:var(--dim); letter-spacing:.01em; text-align:center;
+    line-height:1.15; word-break:break-word}
+  .slot.on .name{color:var(--ink)}
+  .slot.blocked .name{color:var(--bad)}
+  .b-think{border-color:var(--busy); color:var(--busy)}
+  .b-work{border-color:var(--work); color:var(--work)}
+  .b-type{border-color:var(--type); color:var(--type)}
+  .b-stuck{border-color:var(--bad); color:var(--bad)}
+  .b-done{border-color:var(--good); color:var(--good)}
+  .st{font-weight:700}
+  .tool{color:var(--dim); font-size:10px}
+  /* per-agent desk-lamp / monitor glow — flat + crisp (0-blur stepped rings, no blur),
+     keyed off the live turn/turn_delta SSE. One lamp per slot; >1 can be lit at once. */
+  /* lamp glow re-anchored onto the baked desk-lamp head (left of avatar), 2x3 grid:
+     head center rel slot (10,24) -> left 10/64, top (24-4)/60; box 8x8 centered on head */
+  .lamp{position:absolute; left:15.625%; top:33.3333%; width:12.5%; height:13.3333%;
+    transform:translateX(-50%); z-index:3; pointer-events:none}
+  .lamp .bulb{position:absolute; left:50%; top:50%; width:50%; height:50%;
+    transform:translate(-50%,-50%); background:#1b2029; border-radius:1px;
+    transition:background .12s ease}
+  .lamp.think .bulb{background:var(--busy); animation:lampPulse 1.1s ease-in-out infinite}
+  .lamp.work .bulb{background:var(--work);
+    box-shadow:0 0 0 2px rgba(93,184,224,.9), 0 0 0 5px rgba(93,184,224,.45), 0 0 0 8px rgba(93,184,224,.18)}
+  .lamp.stuck .bulb{background:var(--bad);
+    box-shadow:0 0 0 2px rgba(224,93,93,.9), 0 0 0 5px rgba(224,93,93,.4)}
+  .lamp.done .bulb{background:var(--good);
+    box-shadow:0 0 0 3px rgba(126,201,111,.9), 0 0 0 6px rgba(126,201,111,.5), 0 0 0 9px rgba(126,201,111,.22);
+    animation:lampFlash .6s ease-out forwards}
+  @keyframes lampPulse{
+    0%,100%{opacity:.4; box-shadow:0 0 0 1px rgba(232,185,61,.35)}
+    50%{opacity:1; box-shadow:0 0 0 2px rgba(232,185,61,.85), 0 0 0 4px rgba(232,185,61,.4), 0 0 0 7px rgba(232,185,61,.16)}
+  }
+  @keyframes lampFlash{0%{opacity:1}100%{opacity:.2}}
+  /* wall board CTA — the "board in the office" gimmick */
+  .board-cta{position:absolute; left:18.75%; top:8.3333%; width:62.99%; height:19.6429%;
+    z-index:5; cursor:pointer; border:2px solid transparent}
+  .board-cta:hover{border-color:rgba(230,233,239,.4)}
+  .board-cta .cta-label{display:none; position:absolute; left:50%; bottom:-4px; transform:translate(-50%,100%);
+    background:#0c0f14; border:1px solid var(--line); border-radius:6px; padding:2px 8px;
+    font-size:11px; color:var(--ink); white-space:nowrap}
+  .board-cta:hover .cta-label{display:block}
+  #boardLive{position:absolute; left:18.75%; top:8.3333%; width:62.99%; height:19.6429%;
+    z-index:2; pointer-events:none; image-rendering:pixelated; image-rendering:crisp-edges}
+  /* day/night fx layer: flat ambient tint + stepped square lamp glows.
+     pixelated (crisp when scaled), above the baked env, below agents/UI so the
+     room darkens at night while agents + board + status stay legible. */
+  #fx{position:absolute; left:0; top:0; width:100%; height:100%; z-index:1; pointer-events:none;
+    image-rendering:pixelated; image-rendering:crisp-edges}
+  /* event-driven micro-motion layers: #ambience (idle steam/plant sway) sits
+     above the tint; #boardFx holds transient pin-pops above the live board.
+     Both pixelated + pointer-events:none, below agents/UI. */
+  #ambience{position:absolute; left:0; top:0; width:100%; height:100%; z-index:1;
+    pointer-events:none; image-rendering:pixelated; image-rendering:crisp-edges}
+  #boardFx{position:absolute; left:18.75%; top:8.3333%; width:62.99%; height:19.6429%;
+    z-index:4; pointer-events:none; image-rendering:pixelated; image-rendering:crisp-edges}
+  /* monitor flicker on tool activity — a crisp stepped brightness blip on the bulb */
+  .bulb.flicker{ animation: monitorFlicker .24s steps(3, end); }
+  @keyframes monitorFlicker{
+    0%  { filter: brightness(1); }
+    33% { filter: brightness(2.6); }
+    66% { filter: brightness(0.45); }
+    100%{ filter: brightness(1); }
+  }
+  .slot{z-index:3}
+  .scene-clock{color:var(--dim); font-size:11px; letter-spacing:.02em}
+  .foot{display:flex; align-items:center; justify-content:space-between; gap:10px;
+    padding:9px 14px; border:1px solid var(--line); border-top:none;
+    border-radius:0 0 10px 10px; background:var(--panel); font-size:12px; color:var(--dim)}
+  .foot b{color:var(--ink); font-weight:600}
+  .dot{display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--dim); margin-right:6px; vertical-align:middle}
+  .dot.live{background:var(--good); animation:beat 1s infinite}
+  @keyframes beat{0%{box-shadow:0 0 0 0 rgba(126,201,111,.5)}70%{box-shadow:0 0 0 6px rgba(126,201,111,0)}100%{box-shadow:0 0 0 0 rgba(126,201,111,0)}}
+  @media (max-width:520px){
+    .name{font-size:8px}
+    .bubble{font-size:10px; max-width:120px}
+  }
+  /* ---- drill-in panel (t_bb332f8e): click an agent slot or a wall-board card
+     -> right side panel (desktop) / bottom sheet (mobile). Flat opaque chrome,
+     NO backdrop blur — the scene stays legible beside/behind it. ---- */
+  #drillPanel{position:fixed; z-index:50; display:none;
+    background:var(--panel); border:1px solid var(--line);
+    box-shadow:0 0 0 1px rgba(0,0,0,.45), 0 14px 44px rgba(0,0,0,.5);
+    font-size:12px; line-height:1.45; color:var(--ink)}
+  #drillPanel.open{display:flex; flex-direction:column}
+  @media (min-width:521px){
+    /* desktop: right side panel, full height, scene stays to the left. When the
+       panel is open, the scene REFLows to the remaining left space (no overlap,
+       no swallowed column) — the body reserves the panel width on the right. */
+    #drillPanel{top:0; right:0; bottom:0; width:var(--drill-w);
+      border-top:none; border-right:none; border-bottom:none;
+      border-radius:10px 0 0 10px; animation:drillSlideIn .16s ease-out}
+    body.drill-open{padding-right:var(--drill-w); justify-content:flex-start}
+    body.drill-open .wrap{width:min(860px,100%)}
+  }
+  @media (max-width:520px){
+    /* mobile: bottom sheet — covers the scene it describes, top stays legible */
+    #drillPanel{left:0; right:0; bottom:0; height:min(66vh,560px);
+      border-left:none; border-right:none; border-bottom:none;
+      border-radius:12px 12px 0 0; animation:drillSheetUp .18s ease-out}
+  }
+  @keyframes drillSlideIn{from{transform:translateX(16px); opacity:.4}to{transform:translateX(0); opacity:1}}
+  @keyframes drillSheetUp{from{transform:translateY(20px); opacity:.4}to{transform:translateY(0); opacity:1}}
+  .drill-head{display:flex; align-items:center; gap:8px; padding:10px 12px;
+    border-bottom:1px solid var(--line); background:#11151d; flex:0 0 auto}
+  .drill-head .grab{display:none; width:34px; height:4px; border-radius:2px;
+    background:var(--line); margin:0 auto; order:-1}
+  @media (max-width:520px){ .drill-head .grab{display:block} }
+  .drill-title{flex:1; min-width:0; font-size:13px; font-weight:700; color:var(--ink);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .drill-chip{font-size:10px; padding:2px 8px; border-radius:999px; border:1px solid var(--line);
+    color:var(--dim); background:#0c0f14; white-space:nowrap; flex:0 0 auto}
+  .drill-chip.stuck{color:var(--bad); border-color:var(--bad)}
+  .drill-chip.work{color:var(--work); border-color:var(--work)}
+  .drill-chip.think{color:var(--busy); border-color:var(--busy)}
+  .drill-chip.done{color:var(--good); border-color:var(--good)}
+  .drill-close{cursor:pointer; border:1px solid var(--line); background:#0c0f14; color:var(--dim);
+    border-radius:6px; width:24px; height:24px; line-height:1; font-size:13px; flex:0 0 auto}
+  .drill-close:hover{color:var(--ink); background:#20242e}
+  .drill-body{flex:1; overflow-y:auto; padding:12px; overscroll-behavior:contain}
+  .drill-sec{margin-bottom:14px}
+  .drill-sec h3{margin:0 0 6px; font-size:10px; letter-spacing:.08em; text-transform:uppercase;
+    color:var(--dim); font-weight:700}
+  .drill-kv{display:flex; gap:8px; font-size:12px; margin:2px 0}
+  .drill-kv .k{color:var(--dim); flex:0 0 96px}
+  .drill-kv .v{color:var(--ink); word-break:break-word; min-width:0}
+  .drill-stream{background:#0c0f14; border:1px solid var(--line); border-radius:8px;
+    padding:8px 10px; max-height:230px; overflow-y:auto; font-size:11px}
+  .drill-stream .line{margin:2px 0; color:var(--ink); word-break:break-word}
+  .drill-stream .line .ts{color:var(--dim); margin-right:6px}
+  .drill-stream .line .kind{display:inline-block; min-width:54px; font-weight:700; margin-right:6px}
+  .drill-stream .line.tool .kind{color:var(--work)}
+  .drill-stream .line.reasoning .kind{color:var(--busy)}
+  .drill-stream .line.text .kind{color:var(--type)}
+  .drill-sub{margin:8px 0 3px; font-size:10px; letter-spacing:.06em; text-transform:uppercase;
+    color:var(--dim); font-weight:700}
+  .drill-flow{background:#0c0f14; border:1px solid var(--line); border-radius:8px;
+    padding:8px 10px; font-size:11px; line-height:1.5; color:var(--ink);
+    white-space:pre-wrap; word-break:break-word; max-height:190px; overflow-y:auto}
+  .drill-stuck{border:1px solid var(--bad); background:rgba(224,93,93,.09);
+    border-radius:8px; padding:10px; margin-bottom:14px}
+  .drill-stuck h3{margin:0 0 6px; color:var(--bad); font-size:10px; letter-spacing:.08em;
+    text-transform:uppercase; font-weight:700}
+  .drill-stuck p{margin:3px 0; font-size:12px; color:var(--ink)}
+  .drill-actions{display:flex; flex-wrap:wrap; gap:6px}
+  .drill-actions a{display:inline-block; text-decoration:none; font-size:11px;
+    border:1px solid var(--line); background:#0c0f14; color:var(--ink);
+    border-radius:6px; padding:4px 10px}
+  .drill-actions a:hover{background:#20242e}
+  .drill-actions a.stuck{border-color:var(--bad); color:var(--bad)}
+  .drill-empty{color:var(--dim); font-size:11px; font-style:italic}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <h1>team-room &middot; office</h1>
+    <nav class="nav" aria-label="Primary">
+      <a href="/" target="_top">Chat</a>
+      <a href="/board" target="_top">Board</a>
+      <a href="/office" target="_top" class="on" aria-current="page">Office</a>
+    </nav>
+    <span id="conn" class="pill">connecting</span>
+  </div>
+  <div class="stage">
+    <div class="office" id="office">
+      <img id="env" alt="office scene: room, wall kanban board, 6 desks"
+        src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMAAAACoCAYAAAC2e+EwAAAHKklEQVR4nO3dTWgcZRzH8SfbMW9t0iXGCCqthCIVe4gSRagH6cHSqoUWSQ8RQaFXUS/FF6gLvtBLFU9eVBBzyCIV6ktRpHgwIFi0h4pFSmlLEQwxrNl0s4lrI9s4a3azO2+7M/M8z//7gdJ9m8n8w/ObeZ5nZidd2eE7VxUgVCbtDQDS5GQym2pPtgwOpboxQBIWF+Zrj531b5SXFhPZAEAXdIEgGgGAaAQAohEAiEYAIBoBgGgEAKIRAIhGACAaAYBodZdC6CCbzaa9CYhZoVBQutAuAFW/X7uc9iYgJnfcdbfSiaPTnlmnPQPipUt7CnUE2LF7IvBnL87kQ3++0bE33vFcJvfai4HXD/2Ulyuxrbu3xzG3C+SigSNuWgcAMozc83DH1jX72w/2BeBi/t6OrGfHxK+hu1ntHK0OTp/tyLo/Ozy+4bXzB/Z1ZN27Tp3e8NpL30x2ZN0nHptSujMiAM0argndrGYNt1OaNdxOOWFAw3Wd+uhtdeDZlyMvz4kwGK2dxl9FACAaAYBoBACihRoEz167pOL8PJA0jgAQjQBANAIA0QgARAs1CF64Eu7UftjPA1oHYHD7eKjGH/bzQNLoAkFr+4/13Pwn+mI4yLP/v0b/VW451p9DACCy4bsIAEQ2fBcBgBaSbvguAoDUhf0aYycxCwTROAIgNUFvXRKn9LcAIhU0uQkaXSCIRgAgGgGAaAQAoml5ObRut9BGcs799KPn+2MPPJhOAJIatesyOwAZ6AJBNM4DQFtT+S9qjycnnojlZxAAJOrD+0brnj/3yyW194Nva8+P/vyXOn7/VvX+5deVemj9J+MJAF0giEYAIBoBgGhdQyPbVt0nzi3d6W4NrJXV4O8/u1Pslb9Xaq8xCIbo8zt0gSAaAYBoBACiEQCIRgAgGgGAaM7wbSNpbwOQmq4tW4drJ8IAaZzunv6bD7JDHAkgR2F+tv5McHlpMdKKVpaXVHdPX+QNYXmW705xeeMuhShdL254rVKpf61/84CyFfUXO1q/cQGoujBV/6WK9XZO2v/Huc/t29PyvbHTZ5TtnvxkpuV7nz+9O9S6mAaFaAQAojlR+lw29zEbUX/R6vozneh3S0D9o0rkEcBNe3VwaVPyg6L+AavrN3IWSMJMjxcJMz1ews70xBaAk9P5uueHDk+ouLl7IR36ptSfN77+TJy/EGmoP6+sngVyH7dKWhJ7gKRRf9Hq+mu3RentW7sortH4diOHCXXOXqlEvpaE+h1lY/3lpdLN/531v4hm5gqblOlWlv/xeb957VXUv0nZXH8tAK33Av/fRMhUXns4/6sJqd90zerbcARoZX5h7YNmi37HO+ovKZvr9w3Awmr9Le0Gu/zv8NW4jM7Xg/uh/qzV9Uca4QwNNh8w27PH8Eb9/dbU3/Z5gINHckoy6s8pk/lOgzaqHgL99gAmHQLDLk/9BSvqdwfBfB8AotEFahP155TJ6AIJ7QJIr78c9DyADSP9TqP+krJF6AA0pjvueWjdUH/WqvoZBEM0AgDRCABEIwAQjQBANAIA0QgARCMAEK12KUQm05X2tgCJuXFjNeh3gu26loXlWb6Ky6EBAgDpCABEIwAQjQBANAIA0QgARCMAEI0AQDQCANEIAEQjABCNAEA0AgDRCABEIwAQjQBANAIA0QgARCMAEI0AQDQCANG4LxBE4r5ALC96ee4LBBAASBfpr0SmqXS9uOG1SqX+tf7NA8pW1F/saP3GBaDq+S+favnee49/qmz39aszLd/b++ZuZbtzb+1p+d7YK2dCrYsuEEQjABDNidLnsrmP2Yj6i1bXH/gIcGFqVElG/aNK5BHATfvOyUtWJT8o6h+wun4jZ4EkzPR4kTDT4yXsTE9sATg5na97fujwhIqbuxfSoW9K/Xnj68/E+QuRhvrzyupZIPdxq6QlsQdIGvUXra6/djl0b19/0w+MbzdymFDn7JVK5KsJqd9RNtbvXg3qW91cYe2DZuuOvCT1l5TN9XMmGKL5HgHmF+zeA/ih/pKyuX7fACysZuueD3YVVNhldP5GkR/qz1pdf6QRztBg8wGzPXsMb9Tfb039bY8BDh7JKcmoP6dM5jsN2qh6CPTbA5h0CAy7PPUXrKifL8UDdIHaR/05ZTK6QEK7ANLrLwc9E9zuSH/49m3KJiuzBd/6bas57frn/riq4hI6AI3pDpLA8tKissaA/zejrKo35fp7+7aoODnrG3JU7SwLtNu+2ml/qd8bFPDj1b4SmQZ95t1HQv8AIC1h2msmyMo+fuF7QgAjhG2vntOgjx7d2XSh745fCHwIqs4IWD0oRKyqg2CvWaD17S9Ie3VxJhggAJCOAEC0lmOAXbd6L3j+z7X/GQNAhzFA0PbqYgwAEABIRwAgmhO0z6TzBU3A+YjtNfbbfvldymra9fAsr9fy7aILBNEIAEQjABCNAEBJ9i8s++AWB9KUhwAAAABJRU5ErkJggg==">
+      <canvas id="fx" width="192" height="168" aria-hidden="true"></canvas>
+      <canvas id="ambience" width="192" height="168" aria-hidden="true"></canvas>
+      <canvas id="boardLive" width="121" height="33" title="live board counts"></canvas>
+      <canvas id="boardFx" width="121" height="33" aria-hidden="true"></canvas>
+      <div class="board-cta" id="boardCta" title="Drill in — click a card for detail, click the board to open it">
+        <span class="cta-label">drill in &#8599;</span>
+      </div>
+    </div>
+  </div>
+  <div class="foot">
+    <span><span id="dot" class="dot"></span><span id="status">idle &mdash; no active round</span></span>
+    <span id="sceneClock" class="scene-clock" title="office day/night &mdash; 1 real hour = 1 scene day"></span>
+    <span id="clock"></span>
+  </div>
+</div>
+
+<!-- drill-in panel (t_bb332f8e): right side panel (desktop) / bottom sheet (mobile).
+     Flat opaque chrome, no backdrop blur — the scene stays legible beside/behind it. -->
+<aside id="drillPanel" role="dialog" aria-label="drill-in detail" aria-hidden="true">
+  <div class="drill-head">
+    <span class="grab" aria-hidden="true"></span>
+    <span class="drill-title" id="drillTitle"></span>
+    <span class="drill-chip" id="drillChip"></span>
+    <button class="drill-close" id="drillClose" title="Close (Esc)" aria-label="Close panel">&#10005;</button>
+  </div>
+  <div class="drill-body" id="drillBody"></div>
+</aside>
+
+<script>
+"use strict";
+// native scene coords: 192x168. 2x3 desk grid (t_e20b6083): 3 slots/row x 2 rows,
+// each slot 64x60. board at (36,14) 121x33 (untouched).
+var AGENTS = ["product-owner","pixel-art-designer","ux-ui","software-engineer","qa-visual","qa-journey"];
+var STUCK_MS = 8000; // no live delta for this long while a turn is open => "stuck?"
+
+// ---- SHARED DESK GEOMETRY (single source of truth for the 2x3 grid) ----
+// Every desk-derived value — the baked #env PNG (compose_office_scene_v3.py), the
+// LAMPS glow centers, the MUGS steam origins, the .fig/.lamp/.name overlay CSS, and
+// HITREGIONS.agents — is derived from these constants so nothing can drift from the
+// PNG (the "glow in empty air" bug). Cell origin for agent i:
+//   ( (i%cols)*w ,  top + floor(i/cols)*h ).
+var DESK = { cols:3, rows:2, w:64, h:60, top:47,
+             lamp:{dx:10, dy:24}, mug:{dx:16, dy:28}, fig:{dx:24, dy:14}, desktop:30 };
+function deskOrigin(i){ return { x:(i % DESK.cols) * DESK.w, y:DESK.top + Math.floor(i / DESK.cols) * DESK.h }; }
+
+// ---- pure state machine (PER-AGENT; exposed for the verify gate; real event shapes) ----
+// Concurrency: up to max_concurrent_agents turns run in parallel, so the scene
+// tracks a PER-AGENT state map (not a single activeAgent). Multiple agents can
+// be lit at once. The headline fields (activeAgent/activeState/...) mirror the
+// most-recently-active agent for the single footer status line.
+function initialState(){
+  return { agents:{}, roundActive:false,
+           activeAgent:null, activeState:null, toolLabel:null,
+           startedAt:null, lastDeltaAt:null };
+}
+function _headline(state, agent){
+  var ag = state.agents[agent];
+  state.activeAgent = agent;
+  state.activeState = ag ? ag.state : null;
+  state.toolLabel = ag ? ag.toolLabel : null;
+  state.startedAt = ag ? ag.startedAt : null;
+  state.lastDeltaAt = ag ? ag.lastDeltaAt : null;
+}
+function applyEvent(state, evt, now){
+  if(!evt || typeof evt !== "object") return state;
+  switch(evt.type){
+    case "round":
+      if(evt.state === "started") state.roundActive = true;
+      else if(evt.state === "done" || evt.state === "stopped"){
+        state.agents = {};
+        state.activeAgent = null; state.activeState = null;
+        state.toolLabel = null; state.startedAt = null; state.lastDeltaAt = null;
+        state.roundActive = false;
+      }
+      return state;
+    case "turn":
+      if(evt.state === "thinking"){
+        state.agents[evt.agent] = { state:"thinking", startedAt:now, lastDeltaAt:now, toolLabel:null, card_id: evt.card_id || null };
+        _headline(state, evt.agent);
+      }
+      return state;
+    case "turn_delta":
+      var ag = state.agents[evt.agent];
+      if(!ag){ ag = state.agents[evt.agent] = { state:"thinking", startedAt:now, lastDeltaAt:now, toolLabel:null, card_id: evt.card_id || null }; }
+      if(evt.card_id) ag.card_id = evt.card_id;   // SE card: what card this turn is on
+      if(evt.kind === "reasoning") ag.state = "thinking";
+      else if(evt.kind === "tool"){ ag.state = "working";
+        ag.toolLabel = String(evt.delta || "").slice(0, 42); }
+      else if(evt.kind === "text") ag.state = "typing";
+      ag.lastDeltaAt = now;
+      _headline(state, evt.agent);
+      return state;
+    case "message":
+      // an agent's turn just finished (round engine posts its reply) -> brief
+      // done-flash, then the agent idles. This is the per-agent done signal.
+      var who = (evt.message && evt.message.author) || evt.agent;
+      if(who && state.agents[who]){
+        state.agents[who].state = "done";
+        state.agents[who].lastDeltaAt = now;
+        _headline(state, who);
+      }
+      return state;
+    default:
+      return state;
+  }
+}
+function isStuck(state, now, agent){
+  var ag;
+  if(agent) ag = state.agents[agent];
+  else ag = state.activeAgent ? state.agents[state.activeAgent] : null;
+  return !!(ag && ag.state && ag.state !== "done" && ag.lastDeltaAt && (now - ag.lastDeltaAt) > STUCK_MS);
+}
+// expose for the headless verify gate (node)
+if (typeof window !== "undefined"){ window.initialState = initialState; window.applyEvent = applyEvent; window.isStuck = isStuck; }
+if (typeof module !== "undefined" && module.exports){ module.exports = { initialState:initialState, applyEvent:applyEvent, isStuck:isStuck, AGENTS:AGENTS }; }
+
+// ---- shipped frames (reused 16px character art, inlined) ----
+var FRAMES = {"product-owner": {"idle": ["iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAm0lEQVR4nGNgGGjAiE0wykbjPzbxZUduYKhnIlYzLjkWXIqn9VSg8LNKOrCqYyJGMy4xEGBEF/hwYgFOL4CAgEUCI14XCKApICTHiC5gE1CB1wVHNnSg6GHEppkr/AFc7NtKBQxD1s8uZhAVFWXEGYj4wL1Ti1D4TAwkAiWzOOqGAQM6ePHixX8QJlacZC+gA4ykbGRkhFUhLnEA5oc1IjEuRlMAAAAASUVORK5CYII=", "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAkklEQVR4nGNgGGjAiE0wykbjPzbxZUduYKhnIlYzLjkWXIqn9VSg8LNKOrCqYyJGMy4xEGBEF/hwYgFOL4CAgEUCI14XCKApICTHiC5gE1CB1wVHNnSg6GHEppkr/AFc7NtKBQxD1s8uZhAVFWXEGYj4wL1Ti1D4TAwkAiWzOOqGAQOp4MWLF3gtoJ8hUlJSYEMAhSEtz/9auNgAAAAASUVORK5CYII="], "type": ["iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAn0lEQVR4nGNgGGjAiE0wykbjPzbxZUduYKhnIlYzLjkWXIqn9VSg8LNKOrCqYyJGMy4xEGBEF/hwYgFOL4CAgEUCI14XCKApICTHiC5gE1CB1wVHNnSg6GHEppkr/AFc7NtKBQxD1s8uZhAVFWXEGYj4wL1Ti1D4THhVo7kGBJTM4qgbBgzo4MWLF/9BmFhxksMAHWAkZSMjI6wKcYkDAFKyNmNgYOj7AAAAAElFTkSuQmCC", "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAoklEQVR4nGNgGGjAiE0wykbjPzbxZUduYKhnIlYzLjkWXIqn9VSg8LNKOrCqYyJGMy4xEGBEF/hwYgFOL4CAgEUCI14XCKApICTHiC5gE1CB1wVHNnSg6GHEppkr/AFc7NtKBQxD1s8uZhAVFWXEGYj4wL1Ti1D4TAwkAiWzONLCgCv8AYo30MMAA7x48eI/CBMrTrIX0AFGUjYyMsKqEJc4AIW4OCJSAZbSAAAAAElFTkSuQmCC", "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAm0lEQVR4nGNgGGjAiE0wykbjPzbxZUduYKhnIlYzLjkWXIqn9VSg8LNKOrCqYyJGMy4xEGBEF/hwYgFOL4CAgEUCI14XCKApICTHiC5gE1CB1wVHNnSg6GHEppkr/AFc7NtKBQxD1s8uZhAVFWXEGYj4wL1Ti1D4TAwkAiWzOOqGAQM6ePHixX8QJlacZC+gA4ykbGRkhFUhLnEA5oc1IjEuRlMAAAAASUVORK5CYII=", "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAoklEQVR4nGNgGGjAiE0wykbjPzbxZUduYKhnIlYzLjkWXIqn9VSg8LNKOrCqYyJGMy4xEGBEF/hwYgFOL4CAgEUCI14XCKApICTHiC5gE1CB1wVHNnSg6GHEppkr/AFc7NtKBQxD1s8uZhAVFWXEGYj4wL1Ti1D4TAwkAiWzONLDgCv8Adwr6GGAAV68ePEfhIkVJ9kL6AAjKRsZGWFViEscAHm4OCKG0nV+AAAAAElFTkSuQmCC"]}, "pixel-art-designer": {"idle": ["iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAmklEQVR4nGNgGGjAiC4wLarnPz4NWctKUPQwkaIZmxoWbIps3N5g1XxklwiGGBOxmnHJMaILXFpQgdcbegkduMMAmwJCcozoAm490/C6YFdJFooeRmyau+/zw8VKFT9iGNJkY8NgYaHHiDMW8AGw4fcvw/ksDCQCkIuMjkyiXhgwoIMXL178B2FixTGikVSAEQZGRkZYFeISBwBiozpgNwF0TgAAAABJRU5ErkJggg==", "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAkUlEQVR4nGNgGGjAiC4wLarnPz4NWctKUPQwkaIZmxoWbIps3N5g1XxklwiGGBOxmnHJMaILXFpQgdcbegkduMMAmwJCcozoAm490/C6YFdJFooeRmyau+/zw8VKFT9iGNJkY8NgYaHHiDMW8AGw4fcvw/ksDCQCkIuMjkyiXhgwkApevHhBMLXSxxApKSmwIQABPTMNjtRaiwAAAABJRU5ErkJggg=="], "type": ["iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAm0lEQVR4nGNgGGjAiC4wLarnPz4NWctKUPQwkaIZmxoWbIps3N5g1XxklwiGGBOxmnHJMaILXFpQgdcbegkduMMAmwJCcozoAm490/C6YFdJFooeRmyau+/zw8VKFT9iGNJkY8NgYaHHiDMW8AGw4fcv4w4DdIDsGpiLlj9tpl4YMKCDFy9e/AdhYsUJeoEQwAhEIyMjrApxiQMAnKs8XggKXaIAAAAASUVORK5CYII=", "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAoUlEQVR4nGNgGGjAiC4wLarnPz4NWctKUPQwkaIZmxoWbIps3N5g1XxklwiGGBOxmnHJMaILXFpQgdcbegkduMMAmwJCcozoAm490/C6YFdJFooeRmyau+/zw8VKFT9iGNJkY8NgYaHHiDMW8AGw4fcvw/ksDCQCkIuMjkwiPgy67/OjeAM9DDDAixcv/oMwseIY0UgqwAgDIyMjrApxiQMAArQ9YHcG/ZwAAAAASUVORK5CYII=", "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAmklEQVR4nGNgGGjAiC4wLarnPz4NWctKUPQwkaIZmxoWbIps3N5g1XxklwiGGBOxmnHJMaILXFpQgdcbegkduMMAmwJCcozoAm490/C6YFdJFooeRmyau+/zw8VKFT9iGNJkY8NgYaHHiDMW8AGw4fcvw/ksDCQCkIuMjkyiXhgwoIMXL178B2FixTGikVSAEQZGRkZYFeISBwBiozpgNwF0TgAAAABJRU5ErkJggg==", "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAoElEQVR4nGNgGGjAiC4wLarnPz4NWctKUPQwkaIZmxoWbIps3N5g1XxklwiGGBOxmnHJMaILXFpQgdcbegkduMMAmwJCcozoAm490/C6YFdJFooeRmyau+/zw8VKFT9iGNJkY8NgYaHHiDMW8AGw4fcvw/ksDCQCkIuMjkwiLQy67/PDvYIeBhjgxYsX/0GYWHGMaCQVYISBkZERVoW4xAH2pT1gI6ogxgAAAABJRU5ErkJggg=="]}, "ux-ui": {"idle": ["iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAoklEQVR4nGNgGGjAiEvixLSo/8h8i6xlWNUyEaMZlxhWF5yAKtQwckMRv3FuF1aXMGEzFV0zLjGsBmjgUIhLjgldQMAiAWfAYpNjRBeoqGjCGlgw0NFRh6KHBZvmK0q1cDGde80oBpw4cQmsxsJCjxHDAGJAUJAHA8FYwAfi4jIYnj17xki1MGBABy9evPgPwsSKk+wFdIARiEZGRlgV4hIHAG4cOpkLivbLAAAAAElFTkSuQmCC", "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAmUlEQVR4nGNgGGjAiEvixLSo/8h8i6xlWNUyEaMZlxhWF5yAKtQwckMRv3FuF1aXMGEzFV0zLjGsBmjgUIhLjgldQMAiAWfAYpNjRBeoqGjCGlgw0NFRh6KHBZvmK0q1cDGde80oBpw4cQmsxsJCjxHDAGJAUJAHA8FYwAfi4jIYnj17xki1MGAgFbx48QKvBfQzREpKCmwIAAy2M0Z+xpaJAAAAAElFTkSuQmCC"], "type": ["iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAApUlEQVR4nGNgGGjAiEvixLSo/8h8i6xlWNUyEaMZlxhWF5yAKtQwckMRv3FuF1aXMGEzFV0zLjGsBmjgUIhLjgldQMAiAWfAYpNjRBeoqGjCGlgw0NFRh6KHBZvmK0q1cDGde80oBpw4cQmsxsJCjxHDAGJAUJAHA8FYQAbIrgGBuLgMhmfPnjFSLQwY0MGLFy/+gzCx4gS9QAhgBKKRkRFWhbjEARRKPAxdXka5AAAAAElFTkSuQmCC", "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAqUlEQVR4nGNgGGjAiEvixLSo/8h8i6xlWNUyEaMZlxhWF5yAKtQwckMRv3FuF1aXMGEzFV0zLjGsBmjgUIhLjgldQMAiAWfAYpNjRBeoqGjCGlgw0NFRh6KHBZvmK0q1cDGde80oBpw4cQmsxsJCjxHDAGJAUJAHA8FYwAfi4jIYnj17xkh0GFxRqkXxBnoYYIAXL178B2FixUn2AjrACEQjIyOsCnGJAwAOFT2ZfPP4xgAAAABJRU5ErkJggg==", "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAoklEQVR4nGNgGGjAiEvixLSo/8h8i6xlWNUyEaMZlxhWF5yAKtQwckMRv3FuF1aXMGEzFV0zLjGsBmjgUIhLjgldQMAiAWfAYpNjRBeoqGjCGlgw0NFRh6KHBZvmK0q1cDGde80oBpw4cQmsxsJCjxHDAGJAUJAHA8FYwAfi4jIYnj17xki1MGBABy9evPgPwsSKk+wFdIARiEZGRlgV4hIHAG4cOpkLivbLAAAAAElFTkSuQmCC", "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAqElEQVR4nGNgGGjAiEvixLSo/8h8i6xlWNUyEaMZlxhWF5yAKtQwckMRv3FuF1aXMGEzFV0zLjGsBmjgUIhLjgldQMAiAWfAYpNjRBeoqGjCGlgw0NFRh6KHBZvmK0q1cDGde80oBpw4cQmsxsJCjxHDAGJAUJAHA8FYwAfi4jIYnj17xkhSGFxRqoV7BT0MMMCLFy/+gzCx4iR7AR1gBKKRkRFWhbjEAQIVPZkYoFJtAAAAAElFTkSuQmCC"]}, "software-engineer": {"idle": ["iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAiklEQVR4nGNgGGjAiC5gY+P2H5+GI0d2oehhotQFLLgkojRQ+ctuYFfHRIxmXGJYDYjCoRCXHBO6QNYc1EAiJMeIYUvePryxsGySE4oeRmya+yRr4GJFz1swDMmLEmGwsNBjJCsa+5AMJ8sAo8kP4LZTJQwY0MGLFy/+gzCx4tRPykZGRlgV4hIHAM6DLhR4lXF9AAAAAElFTkSuQmCC", "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAhUlEQVR4nGNgGGjAiC5gY+P2H5+GI0d2oehhotQFLLgkojRQ+ctuYFfHRIxmXGJYDYjCoRCXHBO6QNYc1EAiJMeIYUvePryxsGySE4oeRmya+yRr4GJFz1swDMmLEmGwsNBjJCsa+5AMJ8sAo8kP4LZTJQwYSAUvXrzAawH9DJGSkgIbAgBtHSbBiQWcYAAAAABJRU5ErkJggg=="], "type": ["iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAjUlEQVR4nGNgGGjAiC5gY+P2H5+GI0d2oehhotQFLLgkojRQ+ctuYFfHRIxmXGJYDYjCoRCXHBO6QNYc1EAiJMeIYUvePryxsGySE4oeRmya+yRr4GJFz1swDMmLEmGwsNBjJCsa+5AMJ8qAPjQNRpMfwG2nShgwoIMXL178B2FixamflI2MjLAqxCUOABl8Lzcg2dhBAAAAAElFTkSuQmCC", "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAkElEQVR4nGNgGGjAiC5gY+P2H5+GI0d2oehhotQFLLgkojRQ+ctuYFfHRIxmXGJYDYjCoRCXHBO6QNYc1EAiJMeIYUvePryxsGySE4oeRmya+yRr4GJFz1swDMmLEmGwsNBjJCsa+5AMJ8sAo8kP4LYTFQZ9kjUo3kAPAwzw4sWL/yBMrDj1k7KRkRFWhbjEAW08MRQRzwC5AAAAAElFTkSuQmCC", "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAiklEQVR4nGNgGGjAiC5gY+P2H5+GI0d2oehhotQFLLgkojRQ+ctuYFfHRIxmXGJYDYjCoRCXHBO6QNYc1EAiJMeIYUvePryxsGySE4oeRmya+yRr4GJFz1swDMmLEmGwsNBjJCsa+5AMJ8sAo8kP4LZTJQwY0MGLFy/+gzCx4tRPykZGRlgV4hIHAM6DLhR4lXF9AAAAAElFTkSuQmCC", "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAkElEQVR4nGNgGGjAiC5gY+P2H5+GI0d2oehhotQFLLgkojRQ+ctuYFfHRIxmXGJYDYjCoRCXHBO6QNYc1EAiJMeIYUvePryxsGySE4oeRmya+yRr4GJFz1swDMmLEmGwsNBjJCsa+5AMJ8sAo8kP4LYTHQZ9kjVwr6CHAQZ48eLFfxAmVpz6SdnIyAirQlziAGE8MRS0JmNXAAAAAElFTkSuQmCC"]}, "qa-visual": {"idle": ["iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAlUlEQVR4nGNgGGjAiC4wLarnPz4NWctKUPQwkaIZmxoWbIps3N5g1XxklwiGGBOxmnHJMaILXFpQgdcbegkduMMAmwJCcozoAlHTovC6YFnWMhQ9jNg0O15dChfbrx2NYUieUQWDhYUeI1YvEALIhpNlwH40FzGiKyA1DDDAixcv/oMwseIkewEdYCRlIyMjrApxiQMAjRY3IhPXjQ8AAAAASUVORK5CYII=", "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAjElEQVR4nGNgGGjAiC4wLarnPz4NWctKUPQwkaIZmxoWbIps3N5g1XxklwiGGBOxmnHJMaILXFpQgdcbegkduMMAmwJCcozoAlHTovC6YFnWMhQ9jNg0O15dChfbrx2NYUieUQWDhYUeI1YvEALIhpNlwH40FzGiKyA1DEgGL168IJha6WOIlJQU2BAAK7Avz3T/ITAAAAAASUVORK5CYII="], "type": ["iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAl0lEQVR4nGNgGGjAiC4wLarnPz4NWctKUPQwkaIZmxoWbIps3N5g1XxklwiGGBOxmnHJMaILXFpQgdcbegkduMMAmwJCcozoAlHTovC6YFnWMhQ9jNg0O15dChfbrx2NYUieUQWDhYUeI1YvEALIhhNlgCOaBnQXMaJrIDUMMMCLFy/+gzCx4iSHATrASMpGRkZYFeISBwCEYTjdrx49VgAAAABJRU5ErkJggg==", "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAm0lEQVR4nGNgGGjAiC4wLarnPz4NWctKUPQwkaIZmxoWbIps3N5g1XxklwiGGBOxmnHJMaILXFpQgdcbegkduMMAmwJCcozoAlHTovC6YFnWMhQ9jNg0O15dChfbrx2NYUieUQWDhYUeI1YvEALIhpNlwH40FzGiK0APA5CNyJrQwwADvHjx4j8IEytOshfQAUZSNjIywqoQlzgALi86IlYzvdsAAAAASUVORK5CYII=", "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAlUlEQVR4nGNgGGjAiC4wLarnPz4NWctKUPQwkaIZmxoWbIps3N5g1XxklwiGGBOxmnHJMaILXFpQgdcbegkduMMAmwJCcozoAlHTovC6YFnWMhQ9jNg0O15dChfbrx2NYUieUQWDhYUeI1YvEALIhpNlwH40FzGiKyA1DDDAixcv/oMwseIkewEdYCRlIyMjrApxiQMAjRY3IhPXjQ8AAAAASUVORK5CYII=", "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAm0lEQVR4nGNgGGjAiC4wLarnPz4NWctKUPQwkaIZmxoWbIps3N5g1XxklwiGGBOxmnHJMaILXFpQgdcbegkduMMAmwJCcozoAlHTovC6YFnWMhQ9jNg0O15dChfbrx2NYUieUQWDhYUeI1YvEALIhpNlwH40FzGiK8AWBiBbYRrRwwADvHjx4j8IEytOshfQAUZSNjIywqoQlzgAIi86Ij4rQgMAAAAASUVORK5CYII="]}, "qa-journey": {"idle": ["iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAnElEQVR4nGNgGGjAiE0wykbjPzbxZUduYKhnIlYzshyyGhZciqf1VKDws0o6sKpjIkYzLjEQYEQX+HBiAU4vgICARQIjXhcIoCkgJMeILrDFzQ2vC3x27ULRw4JNs2ExB1zsfO8PFANev34NViMqKsqIMxBJAUwkqWZgYDgZHQ23nSphwIAOXrx48R+EiRWnOAwwkrKRkRFWhbjEAf7GN+CCWYjcAAAAAElFTkSuQmCC", "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAlUlEQVR4nGNgGGjAiE0wykbjPzbxZUduYKhnIlYzshyyGhZciqf1VKDws0o6sKpjIkYzLjEQYEQX+HBiAU4vgICARQIjXhcIoCkgJMeILrDFzQ2vC3x27ULRw4JNs2ExB1zsfO8PFANev34NViMqKsqIMxBJAUwkqWZgYDgZHQ23nSphwEAqePHiBV4L6GeIlJQU2BAAnWAwjQtUFnAAAAAASUVORK5CYII="], "type": ["iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAnUlEQVR4nGNgGGjAiE0wykbjPzbxZUduYKhnIlYzshyyGhZciqf1VKDws0o6sKpjIkYzLjEQYEQX+HBiAU4vgICARQIjXhcIoCkgJMeILrDFzQ2vC3x27ULRw4JNs2ExB1zsfO8PFANev34NViMqKsqIMxBJAUyEFCC7BgRORkfDbadKGDCggxcvXvwHYWLFKQ4DjKRsZGSEVSEucQDCgjiMLMwt3wAAAABJRU5ErkJggg==", "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAo0lEQVR4nGNgGGjAiE0wykbjPzbxZUduYKhnIlYzshyyGhZciqf1VKDws0o6sKpjIkYzLjEQYEQX+HBiAU4vgICARQIjXhcIoCkgJMeILrDFzQ2vC3x27ULRw4JNs2ExB1zsfO8PFANev34NViMqKsqIMxBJAUwkqWZgYDgZHQ23nagwMCzmQPEGehhggBcvXvwHYWLFKQ4DjKRsZGSEVSEucQCbozrglf0CYwAAAABJRU5ErkJggg==", "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAnElEQVR4nGNgGGjAiE0wykbjPzbxZUduYKhnIlYzshyyGhZciqf1VKDws0o6sKpjIkYzLjEQYEQX+HBiAU4vgICARQIjXhcIoCkgJMeILrDFzQ2vC3x27ULRw4JNs2ExB1zsfO8PFANev34NViMqKsqIMxBJAUwkqWZgYDgZHQ23nSphwIAOXrx48R+EiRWnOAwwkrKRkRFWhbjEAf7GN+CCWYjcAAAAAElFTkSuQmCC", "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAo0lEQVR4nGNgGGjAiE0wykbjPzbxZUduYKhnIlYzshyyGhZciqf1VKDws0o6sKpjIkYzLjEQYEQX+HBiAU4vgICARQIjXhcIoCkgJMeILrDFzQ2vC3x27ULRw4JNs2ExB1zsfO8PFANev34NViMqKsqIMxBJAUwkqWZgYDgZHQ23negwMCzmgHsFPQwwwIsXL/6DMLHiFIcBRlI2MjLCqhCXOACPozrgxFt16wAAAABJRU5ErkJggg=="]}};
+var TYPE_MS = 150, IDLE_MS = 700, CALM_MS = 900;
+
+// ---- build slots ----
+var office = document.getElementById("office");
+var slots = {}, figs = {}, lamps = {}, bulbs = {};
+var anim = {};
+AGENTS.forEach(function(name, i){
+  var el = document.createElement("div");
+  el.className = "slot";
+  var o = deskOrigin(i);
+  el.style.left = (o.x / 192 * 100) + "%";
+  el.style.top = (o.y / 168 * 100) + "%";
+  el.innerHTML = '<div class="lamp"><div class="bulb"></div></div>' +
+    '<div class="flag" title="blocked">&#9873;</div>' +
+    '<img class="fig" alt="' + name + '" src="data:image/png;base64,' + FRAMES[name].idle[0] + '">' +
+    '<div class="bubble"></div><div class="name"></div>';
+  el.querySelector(".name").textContent = name;
+  office.appendChild(el);
+  slots[name] = el;
+  figs[name] = el.querySelector(".fig");
+  lamps[name] = el.querySelector(".lamp");
+  bulbs[name] = el.querySelector(".bulb");
+  anim[name] = { set:"idle", idx:0, last:0 };
+});
+
+// ---- frame-swap + per-agent lamp (working vs stuck must be distinguishable) ----
+function stepFrames(now){
+  AGENTS.forEach(function(name){
+    var a = anim[name];
+    var ag = state.agents[name];
+    var active = !!ag;
+    var stuck = active && isStuck(state, now, name);
+    var set, ms;
+    if(active && !stuck && ag.state === "typing"){ set = "type"; ms = TYPE_MS; }
+    else if(active && !stuck){ set = "idle"; ms = IDLE_MS; }
+    else if(active){ ms = 0; } // stuck: freeze on the current frame
+    else { set = "idle"; ms = CALM_MS; }
+    if(ms !== 0){
+      if(set !== a.set){ a.set = set; a.idx = 0; a.last = now; }
+      if(now - a.last >= ms){ a.idx = (a.idx + 1) % FRAMES[name][set].length; a.last = now; }
+      var url = "data:image/png;base64," + FRAMES[name][set][a.idx];
+      if(figs[name].getAttribute("src") !== url) figs[name].setAttribute("src", url);
+    }
+    // per-agent lamp keyed off THIS agent's own state (multiple can be lit at once)
+    if(lamps[name]){
+      var cls = "lamp";
+      if(active && !stuck){
+        if(ag.state === "thinking") cls += " think";
+        else if(ag.state === "working" || ag.state === "typing") cls += " work";
+        else if(ag.state === "done") cls += " done";
+      } else if(active && stuck){
+        cls += " stuck";
+      }
+      if(lamps[name].className !== cls) lamps[name].className = cls;
+      // done-flash is brief: clear the agent after it plays so it idles
+      if(ag && ag.state === "done" && now - ag.lastDeltaAt > 600){ delete state.agents[name]; }
+    }
+  });
+}
+
+// ---- MVP-3: auth — same tr_token in localStorage as /chat; /kanban + /events
+//      are gated, so every fetch carries the Bearer header / ?token= ----
+var authToken = localStorage.getItem("tr_token");
+function authHeaders(){ var h = {}; if(authToken) h["Authorization"] = "Bearer " + authToken; return h; }
+function promptForToken(){
+  var t = prompt("team-room auth token (config.json -> auth_token):");
+  if(t){ authToken = t.trim(); localStorage.setItem("tr_token", authToken); }
+  return !!authToken;
+}
+
+// ---- live wall board: counts + card bars from /kanban (same font/palette as baked) ----
+var COLX = [5, 28, 51, 74, 97]; // column x0 (native), 5 cols x 18px headers
+var ORDER = ["todo", "ready", "running", "blocked", "done"];
+var COLHEAD = { todo:"rgb(232,185,61)", ready:"rgb(139,147,163)", running:"rgb(93,184,224)",
+  blocked:"rgb(224,93,93)", done:"rgb(126,201,111)" };
+var DIGITS = {
+  "0":["111","101","101","101","111"], "1":["010","110","010","010","111"],
+  "2":["111","001","111","100","111"], "3":["111","001","111","001","111"],
+  "4":["101","101","111","001","001"], "5":["111","100","111","001","111"],
+  "6":["111","100","111","101","111"], "7":["111","001","001","001","001"],
+  "8":["111","101","111","101","111"], "9":["111","101","101","001","111"]
+};
+function drawDigit(c, s, x, y){
+  for(var r = 0; r < 5; r++) for(var col = 0; col < 3; col++)
+    if(DIGITS[s][r][col] === "1") c.fillRect(x + col, y + r, 1, 1);
+}
+function drawCount(c, n, cx, y){
+  var s = String(n), w = 3 * s.length + (s.length - 1), x = cx - (w >> 1);
+  for(var i = 0; i < s.length; i++){ drawDigit(c, s[i], x, y); x += 4; }
+}
+// stage labels above the header bar: 3px-tall pixel font, 4px/char, drawn in
+// the column's COLHEAD color — flat, crisp, legible at native 1px scale
+var LABELS = { todo:"TODO", ready:"RDY", running:"RUN", blocked:"BLK", done:"DONE" };
+var GLYPHS = {
+  T:["111","010","010"], O:["111","101","111"], D:["110","101","110"],
+  R:["110","101","111"], Y:["101","010","010"], U:["101","101","111"],
+  N:["101","111","101"], B:["110","111","110"], L:["100","100","111"],
+  K:["101","110","101"], E:["110","100","110"]
+};
+function drawLabel(c, s, x, y){
+  for(var i = 0; i < s.length; i++){
+    var g = GLYPHS[s[i]];
+    for(var r = 0; r < 3; r++) for(var col = 0; col < 3; col++)
+      if(g[r][col] === "1") c.fillRect(x + col, y + r, 1, 1);
+    x += 4;
+  }
+}
+function drawBoard(counts){
+  var c = document.getElementById("boardLive").getContext("2d");
+  c.clearRect(0, 0, 121, 33);
+  // erase baked headers + counts + cards (board bg is a solid flat fill there)
+  c.fillStyle = "rgb(12,15,20)";
+  c.fillRect(2, 6, 117, 25);
+  // redraw 5 column headers + counts + up to 3 card bars per column
+  ORDER.forEach(function(key, i){
+    var n = Math.max(0, counts[key] || 0), cx0 = COLX[i];
+    c.fillStyle = COLHEAD[key];
+    c.fillRect(cx0, 6, 18, 3);
+    var lab = LABELS[key], lw = 3 * lab.length + (lab.length - 1);
+    drawLabel(c, lab, cx0 + ((18 - lw) >> 1), 1);
+    c.fillStyle = "rgb(230,233,239)";
+    drawCount(c, n, cx0 + 9, 11);
+    c.fillStyle = "rgb(48,55,68)";
+    for(var k = 0; k < Math.min(n, 3); k++) c.fillRect(cx0, 19 + k * 4, 18, 3);
+  });
+}
+function loadKanban(){
+  fetch("/kanban",{headers:authHeaders()}).then(function(r){
+    if(r.status === 401){ promptForToken(); return Promise.reject(new Error("unauthorized")); }
+    return r.json();
+  }).then(function(d){
+    var counts = { todo:0, ready:0, running:0, blocked:0, done:0 };
+    var tasks = d.tasks || [];
+    lastKanbanTasks = tasks;   // drill-in: full card detail for the panel
+    tasks.forEach(function(t){ if(counts.hasOwnProperty(t.status)) counts[t.status]++; });
+    if(d.status_counts) ORDER.forEach(function(k){ if(d.status_counts[k] != null) counts[k] = d.status_counts[k]; });
+    drawBoard(counts);
+    var cols = buildCols(tasks);
+    if(lastBoardCols === null) lastBoardCols = cols;   // first fetch = baseline, no pop
+    else spawnPops(cols);                              // diff -> pin-pops on landed cards
+    var blocked = null;
+    tasks.forEach(function(t){ if(!blocked && t.status === "blocked" && t.assignee) blocked = t.assignee; });
+    if(blocked && slots[blocked]) slots[blocked].classList.add("blocked");
+  }).catch(function(){});
+}
+loadKanban();
+setInterval(loadKanban, 15000);
+
+// ---- drill-in hit regions (native 192x168 scene coords) ----
+// t_7049c92e: geometry the click-to-drill overlay (t_bb332f8e) consumes.
+// Point-in-rect in NATIVE space: transform the click via the scene scale,
+// never CSS bounding boxes. Board canvas origin in scene coords: (36,14), 121x33.
+//
+// Target sizes at the 390px render (measured scale 1.79): agent slot 57px,
+// board surface 217x59px, stage cell 43px, exact card bar 32x5px (best-effort).
+// Padding each card bar to >=44px effective is geometrically impossible: the
+// board is 59px tall on mobile, 3 rows x 44px = 132px. The guaranteed >=44px
+// target is the whole board surface (opens the full /board overlay, where card
+// rows are real 44px+ targets); stage/card rects are sub-targets.
+var BOARD_X = 36, BOARD_Y = 14, BOARD_W = 121, BOARD_H = 33;
+var HITREGIONS = (function(){
+  var agents = {};
+  AGENTS.forEach(function(name, i){
+    var o = deskOrigin(i);   // shared 2x3 geometry: slot x=i%3*64, w=64, y=47+floor(i/3)*60, h=60
+    agents[name] = { x: o.x, y: o.y, w: DESK.w, h: DESK.h, kind: "agent" };
+  });
+  var cards = [];
+  var cellX = [0, 24, 49, 73, 97], cellW = [24, 25, 24, 24, 24]; // integer bounds, sum 121
+  ORDER.forEach(function(key, i){
+    cards.push({ x: BOARD_X + cellX[i], y: BOARD_Y, w: cellW[i], h: BOARD_H,
+                 kind: "stage", stage: key, row: -1 });
+    for (var k = 0; k < 3; k++)
+      cards.push({ x: BOARD_X + COLX[i], y: BOARD_Y + 19 + k * 4, w: 18, h: 3,
+                   kind: "card", stage: key, row: k });
+  });
+  return { agents: agents, cards: cards,
+           board: { x: BOARD_X, y: BOARD_Y, w: BOARD_W, h: BOARD_H } };
+})();
+function cardIdAt(stage, row){ // live id from the last /kanban fetch (same source as pin-pops)
+  var ids = lastBoardCols && lastBoardCols[stage];
+  return (ids && ids[row]) || null;
+}
+function hitTest(x, y){ // native scene coords -> {kind, stage?, row?, card_id?, agent?}
+  // two passes: exact card bars first (smallest), then stage cells, then slots
+  for (var pass = 0; pass < 2; pass++)
+    for (var i = 0; i < HITREGIONS.cards.length; i++){
+      var r = HITREGIONS.cards[i];
+      if ((pass === 0) !== (r.kind === "card")) continue;
+      if (x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h)
+        return { kind: r.kind, stage: r.stage, row: r.row, card_id: cardIdAt(r.stage, r.row) };
+    }
+  for (var n in HITREGIONS.agents){
+    var a = HITREGIONS.agents[n];
+    if (x >= a.x && x < a.x + a.w && y >= a.y && y < a.y + a.h)
+      return { kind: "agent", agent: n };
+  }
+  return null;
+}
+
+// ---- pin-pop: kanban liveness made visible in-scene ----
+// A card "lands" when a task id appears in a column it wasn't in before (a new
+// task, or a move into the column). We diff per-column id sets between /kanban
+// fetches and pop a pushpin (column-colored) at the new card's row. Triggered by
+// the real `kanban` SSE change signal (re-fetch) + the 15s poll — not decoration.
+var lastBoardCols = null;   // per-column id arrays from the previous fetch
+var lastKanbanTasks = [];   // full task objects from the last /kanban fetch (drill-in detail)
+var pops = [];              // {x, y, t0, color}
+var boardFxCtx = document.getElementById("boardFx").getContext("2d");
+var boardFxRaf = 0;
+function buildCols(tasks){
+  var cols = { todo:[], ready:[], running:[], blocked:[], done:[] };
+  (tasks||[]).forEach(function(t){ if(cols.hasOwnProperty(t.status)) cols[t.status].push(t.id); });
+  return cols;
+}
+function diffLands(prevCols, curCols){
+  // pure: cards that landed in a visible row (0..2) of a column
+  var lands = [];
+  ORDER.forEach(function(key, i){
+    var prev = (prevCols && prevCols[key]) || [];
+    var cur = curCols[key] || [];
+    cur.forEach(function(id, row){
+      if(prev.indexOf(id) === -1 && row < 3)
+        lands.push({ col:key, row:row, x:COLX[i] + 9, y:19 + row * 4 });
+    });
+  });
+  return lands;
+}
+function spawnPops(cols){
+  var lands = diffLands(lastBoardCols, cols);
+  if(lands.length){
+    var now = Date.now();
+    lands.forEach(function(l){ pops.push({ x:l.x, y:l.y, t0:now, color:COLHEAD[l.col] }); });
+    if(!boardFxRaf) boardFxRaf = requestAnimationFrame(stepPops);
+  }
+  lastBoardCols = cols;
+}
+function stepPops(){
+  var now = Date.now();
+  boardFxCtx.clearRect(0, 0, 121, 33);
+  for(var i = pops.length - 1; i >= 0; i--){
+    var p = pops[i], age = now - p.t0;
+    if(age > 520){ pops.splice(i, 1); continue; }
+    var r, a;
+    if(age < 140){ var g = age / 140; r = 1 + Math.round(g * 2); a = 1; }   // pop-in: grow 1->3px
+    else { r = 3; a = 1 - (age - 140) / 380; }                               // fade out
+    boardFxCtx.globalAlpha = Math.max(0, a);
+    boardFxCtx.fillStyle = p.color;
+    boardFxCtx.fillRect(p.x - (r >> 1), p.y - (r >> 1), r, r);   // pin head (column color)
+    boardFxCtx.fillStyle = "rgb(230,233,239)";
+    boardFxCtx.fillRect(p.x, p.y, 1, 1);                          // bright center
+    boardFxCtx.globalAlpha = 1;
+  }
+  if(pops.length){ boardFxRaf = requestAnimationFrame(stepPops); }
+  else { boardFxRaf = 0; boardFxCtx.clearRect(0, 0, 121, 33); }
+}
+
+// ---- monitor flicker on tool activity (turn_delta kind=tool) ----
+// A tool firing blips the agent's monitor/bulb. Throttled per-agent (180ms) so a
+// burst of tool deltas reads as a flicker, not a strobe. The `flicker` class is
+// on the .bulb (not .lamp) so stepFrames' className management doesn't wipe it.
+var lastFlicker = {};
+function flickerLamp(agent){
+  if(!agent || !bulbs[agent]) return;
+  var now = Date.now();
+  if(lastFlicker[agent] && now - lastFlicker[agent] < 180) return;
+  lastFlicker[agent] = now;
+  var el = bulbs[agent];
+  el.classList.remove("flicker");
+  void el.offsetWidth;              // reflow so the animation restarts on re-trigger
+  el.classList.add("flicker");
+  setTimeout(function(){ el.classList.remove("flicker"); }, 260);
+}
+
+// ---- drill-in (t_bb332f8e): click an agent slot or a wall-board card.
+//      One handler on the scene: convert the click to NATIVE scene coords (via
+//      the scene scale, never CSS boxes), hitTest -> open the right panel. A
+//      stuck slot is the SAME target as an active one — the red lamp opens the
+//      panel (live stream + why-stuck + what I can do), it doesn't just glow.
+//      The board surface with no card still opens the full live board (CTA).
+function sceneCoords(evt){
+  var r = office.getBoundingClientRect();
+  if(!r.width || !r.height) return { x:-1, y:-1 };
+  return { x:(evt.clientX - r.left) / r.width * 192,
+           y:(evt.clientY - r.top) / r.height * 168 };
+}
+office.addEventListener("click", function(evt){
+  var p = sceneCoords(evt);
+  if(p.x < 0 || p.x >= 192 || p.y < 0 || p.y >= 168) return;   // outside the scene
+  var hit = hitTest(p.x, p.y);
+  if(!hit){ closePanel(); return; }
+  if(hit.kind === "agent") openAgentPanel(hit.agent);
+  else if(hit.kind === "card" && hit.card_id) openCardPanel(hit.card_id, hit.stage, hit.row);
+  else openBoardOverlay();   // stage cell / empty card row / board -> full board
+});
+
+// ---- render loop ----
+var state = initialState();
+var conn = document.getElementById("conn");
+var dot = document.getElementById("dot");
+var statusEl = document.getElementById("status");
+var clockEl = document.getElementById("clock");
+
+function esc(s){ return String(s).replace(/[&<>]/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;"}[c]; }); }
+function fmtElapsed(ms){ var s = Math.max(0, Math.floor(ms/1000)); return s + "s"; }
+
+function render(now){
+  stepFrames(now);
+  var nActive = Object.keys(state.agents).length;
+  AGENTS.forEach(function(name){
+    var el = slots[name];
+    var ag = state.agents[name];
+    var on = !!ag;
+    el.classList.toggle("on", on);
+    var b = el.querySelector(".bubble");
+    if(!on){ b.className = "bubble"; b.innerHTML = ""; return; }
+    var stuck = isStuck(state, now, name);
+    var cls = "bubble";
+    var label;
+    if(stuck){ cls += " b-stuck"; label = '<span class="st">stuck?</span> no delta ' + fmtElapsed(now - ag.lastDeltaAt); }
+    else if(ag.state === "working"){ cls += " b-work";
+      label = '<span class="st">&#9881; working</span>' + (ag.toolLabel ? ' <span class="tool">' + esc(ag.toolLabel) + '</span>' : ''); }
+    else if(ag.state === "typing"){ cls += " b-type"; label = '<span class="st">typing</span> ' + fmtElapsed(now - ag.startedAt); }
+    else if(ag.state === "done"){ cls += " b-done"; label = '<span class="st">done</span>'; }
+    else { cls += " b-think"; label = '<span class="st">thinking</span> ' + fmtElapsed(now - ag.startedAt); }
+    b.className = cls; b.innerHTML = label;
+  });
+  // footer: headline = most-recently-active agent; show a count when >1 concurrent
+  dot.classList.toggle("live", nActive > 0);
+  conn.textContent = "live"; conn.className = "pill live";
+  if(state.activeAgent){
+    var hag = state.agents[state.activeAgent];
+    var hstuck = isStuck(state, now, state.activeAgent);
+    var w = hstuck ? "stuck?" : (hag ? hag.state : "active");
+    var count = nActive > 1 ? "<b>" + nActive + " agents</b> active &middot; " : "";
+    statusEl.innerHTML = count + "<b>" + esc(state.activeAgent) + "</b> &middot; " + w +
+      (w === "working" && hag && hag.toolLabel ? " &middot; " + esc(hag.toolLabel) : "") +
+      " &middot; " + fmtElapsed(now - (hag ? hag.startedAt : now));
+    clockEl.textContent = "last delta " + fmtElapsed(now - (hag ? hag.lastDeltaAt : now)) + " ago";
+  } else {
+    statusEl.innerHTML = state.roundActive ? "round active &middot; waiting for a turn" : "idle &mdash; no active round";
+    clockEl.textContent = "";
+  }
+}
+setInterval(function(){ render(Date.now()); }, 120);
+
+// ---- initial-state-sync: seed the scene from the live round/turn state ----
+// A fresh load shows 'idle' until the next turn_delta SSE. Fetch /state once on
+// load so per-agent lamps + active agents reflect live state mid-round (a round
+// already in flight lights up immediately instead of waiting for the next
+// event). SSE keeps it live afterwards. Mirrors what applyEvent builds.
+function loadState(){
+  fetch("/state", {headers: authHeaders()}).then(function(r){
+    if(r.status === 401){ promptForToken(); return Promise.reject(new Error("unauthorized")); }
+    return r.json();
+  }).then(function(d){
+    if(!d) return;
+    state.roundActive = !!d.round_active;
+    state.agents = {};
+    var turns = d.turns || {};
+    var latestAgent = null, latestTs = -1;
+    Object.keys(turns).forEach(function(agent){
+      var t = turns[agent];
+      if(!t || !slots[agent]) return;   // only known agents have slots
+      state.agents[agent] = {
+        state: t.state,
+        startedAt: t.started_at,
+        lastDeltaAt: t.last_delta_at,
+        toolLabel: t.tool_label || null,
+        card_id: t.card_id || null
+      };
+      var ts = t.last_delta_at || 0;
+      if(ts > latestTs){ latestTs = ts; latestAgent = agent; }
+    });
+    // headline = most-recently-active agent (mirrors _headline)
+    if(latestAgent){
+      var ag = state.agents[latestAgent];
+      state.activeAgent = latestAgent;
+      state.activeState = ag.state;
+      state.toolLabel = ag.toolLabel;
+      state.startedAt = ag.startedAt;
+      state.lastDeltaAt = ag.lastDeltaAt;
+    } else {
+      state.activeAgent = null; state.activeState = null;
+      state.toolLabel = null; state.startedAt = null; state.lastDeltaAt = null;
+    }
+    render(Date.now());   // reflect immediately; don't wait for the next 120ms tick
+  }).catch(function(){});
+}
+loadState();
+
+// ---- drill-in panel (t_bb332f8e): live turn stream + current card + status;
+//      a stuck slot opens the SAME panel with why-stuck + what I can do. ----
+var drill = { open:false, mode:null, agent:null, card_id:null, stage:null, row:null };
+// Live turn stream: per-agent accumulator of the agent's running output. Deltas
+// arrive as small streaming fragments ("the", " card", "."), so we CONCATENATE
+// them per kind into readable running text (thinking / response) + a recent
+// tool-call list — not one line per fragment. Keeps the tail (most recent).
+var turnStream = {};          // agent -> { reasoning:"", text:"", tools:[{label,ts}] }
+var STREAM_TEXT_MAX = 3000;   // chars of accumulated reasoning/text to keep (tail)
+var STREAM_TOOLS_MAX = 12;    // recent tool calls to keep
+function pushStream(agent, kind, delta){
+  if(!agent) return;
+  var s = turnStream[agent] || (turnStream[agent] = { reasoning:"", text:"", tools:[] });
+  var d = String(delta == null ? "" : delta);
+  if(kind === "reasoning"){ s.reasoning = (s.reasoning + d).slice(-STREAM_TEXT_MAX); }
+  else if(kind === "text"){ s.text = (s.text + d).slice(-STREAM_TEXT_MAX); }
+  else if(kind === "tool"){ s.tools.push({ label: d.slice(0, 80), ts: Date.now() });
+    if(s.tools.length > STREAM_TOOLS_MAX) s.tools.shift(); }
+}
+function resetStream(agent){ turnStream[agent] = { reasoning:"", text:"", tools:[] }; }
+
+var drillPanel = document.getElementById("drillPanel");
+var drillTitle = document.getElementById("drillTitle");
+var drillChip  = document.getElementById("drillChip");
+var drillBody  = document.getElementById("drillBody");
+document.getElementById("drillClose").addEventListener("click", closePanel);
+document.addEventListener("keydown", function(e){ if(e.key === "Escape") closePanel(); });
+
+function findCard(id){
+  for(var i = 0; i < lastKanbanTasks.length; i++)
+    if(lastKanbanTasks[i].id === id) return lastKanbanTasks[i];
+  return null;
+}
+function fmtAgo(ts, now){
+  if(!ts) return "—";
+  var t = ts < 1e12 ? ts * 1000 : ts;   // epoch seconds -> ms
+  var s = Math.max(0, Math.floor(((now || Date.now()) - t)/1000));
+  if(s < 60) return s + "s ago";
+  var m = Math.floor(s/60); if(m < 60) return m + "m ago";
+  var h = Math.floor(m/60); if(h < 24) return h + "h ago";
+  return Math.floor(h/24) + "d ago";
+}
+function statusChip(state, stuck){
+  var cls = "drill-chip", txt = state || "idle";
+  if(stuck){ cls += " stuck"; txt = "stuck?"; }
+  else if(state === "working" || state === "typing") cls += " work";
+  else if(state === "thinking") cls += " think";
+  else if(state === "done") cls += " done";
+  return '<span class="' + cls + '">' + esc(txt) + '</span>';
+}
+function openAgentPanel(agent){
+  drill.open = true; drill.mode = "agent"; drill.agent = agent;
+  drill.card_id = null; drill.stage = null; drill.row = null;
+  drillPanel.classList.add("open"); drillPanel.setAttribute("aria-hidden", "false");
+  document.body.classList.add("drill-open");   // desktop: reflow scene beside the panel
+  renderPanel();
+}
+function openCardPanel(card_id, stage, row){
+  drill.open = true; drill.mode = "card"; drill.agent = null;
+  drill.card_id = card_id; drill.stage = stage; drill.row = row;
+  drillPanel.classList.add("open"); drillPanel.setAttribute("aria-hidden", "false");
+  document.body.classList.add("drill-open");
+  renderPanel();
+}
+function openBoardOverlay(){
+  if(window.parent && window.parent !== window){
+    window.parent.postMessage({ type: "team-room:open-kanban" }, "*");
+  } else {
+    location.href = "/board";
+  }
+}
+function closePanel(){
+  drill.open = false; drill.mode = null; drill.agent = null; drill.card_id = null;
+  drillPanel.classList.remove("open"); drillPanel.setAttribute("aria-hidden", "true");
+  document.body.classList.remove("drill-open");
+}
+
+// ---- panel body builders (pure-ish: read state + lastKanbanTasks, emit HTML) ----
+function streamHtml(agent){
+  var s = turnStream[agent] || { reasoning:"", text:"", tools:[] };
+  if(!s.reasoning && !s.text && !s.tools.length)
+    return '<div class="drill-empty">no deltas yet this turn — stream is live</div>';
+  var out = "";
+  // recent tool calls (newest first)
+  if(s.tools.length){
+    out += '<div class="drill-sub">tools</div>';
+    for(var i = s.tools.length - 1; i >= 0; i--){
+      var t = s.tools[i], d = new Date(t.ts);
+      var ts = (d.getHours()<10?"0":"")+d.getHours()+":"+(d.getMinutes()<10?"0":"")+d.getMinutes()+":"+(d.getSeconds()<10?"0":"")+d.getSeconds();
+      out += '<div class="line tool"><span class="ts">' + ts + '</span><span class="kind">tool</span>' + esc(t.label) + '</div>';
+    }
+  }
+  // running thinking (accumulated reasoning, tail)
+  if(s.reasoning) out += '<div class="drill-sub">thinking</div><div class="drill-flow">' + esc(s.reasoning) + '</div>';
+  // running response (accumulated text, tail)
+  if(s.text) out += '<div class="drill-sub">response</div><div class="drill-flow">' + esc(s.text) + '</div>';
+  return out;
+}
+function agentPanelHtml(agent, now){
+  var ag = state.agents[agent];
+  var stuck = isStuck(state, now, agent);
+  var cid = ag ? ag.card_id : null;
+  var card = cid ? findCard(cid) : null;
+  var h = "";
+  // current turn / status
+  h += '<div class="drill-sec"><h3>now</h3>';
+  if(!ag){
+    h += '<div class="drill-empty">idle — no in-flight turn for this agent</div>';
+  } else {
+    h += '<div class="drill-kv"><span class="k">state</span><span class="v">' +
+      (stuck ? '<b style="color:var(--bad)">stuck?</b>' : esc(ag.state)) + '</span></div>';
+    if(ag.toolLabel) h += '<div class="drill-kv"><span class="k">tool</span><span class="v">' + esc(ag.toolLabel) + '</span></div>';
+    h += '<div class="drill-kv"><span class="k">elapsed</span><span class="v">' + fmtElapsed(now - (ag.startedAt || now)) + '</span></div>';
+    h += '<div class="drill-kv"><span class="k">last delta</span><span class="v">' + fmtAgo(ag.lastDeltaAt, now) + '</span></div>';
+  }
+  h += '</div>';
+  // current card (SE card: card_id in turn_state)
+  h += '<div class="drill-sec"><h3>current card</h3>';
+  if(card){
+    h += '<div class="drill-kv"><span class="k">card</span><span class="v"><a href="#card:' + esc(card.id) +
+      '" data-card="' + esc(card.id) + '" style="color:var(--work);text-decoration:none">' + esc(card.title) +
+      '</a></span></div>';
+    h += '<div class="drill-kv"><span class="k">status</span><span class="v">' + esc(card.status) + '</span></div>';
+  } else if(cid){
+    h += '<div class="drill-kv"><span class="k">card</span><span class="v">' + esc(cid) + ' (not on board yet)</span></div>';
+  } else {
+    h += '<div class="drill-empty">no card linked to this turn</div>';
+  }
+  h += '</div>';
+  // stuck escape hatch: why-stuck + what I can do
+  if(stuck){
+    h += '<div class="drill-stuck"><h3>why stuck</h3>';
+    h += '<p>No live delta for <b>' + fmtElapsed(now - (ag ? ag.lastDeltaAt : now)) + '</b> while a turn is open (stuck threshold ' + (STUCK_MS/1000) + 's).</p>';
+    if(ag && ag.toolLabel) h += '<p>Last tool: <b>' + esc(ag.toolLabel) + '</b></p>';
+    if(card) h += '<p>On card: <b>' + esc(card.title) + '</b> (' + esc(card.status) + ')</p>';
+    h += '<h3 style="margin-top:10px">what you can do</h3>';
+    h += '<div class="drill-actions">';
+    if(card) h += '<a href="#card:' + esc(card.id) + '" data-card="' + esc(card.id) + '" class="stuck">view card</a>';
+    h += '<a href="/chat" target="_top">read transcript</a>';
+    h += '<a href="/board" target="_top">open board</a>';
+    h += '</div></div>';
+  }
+  // live turn stream
+  h += '<div class="drill-sec"><h3>live turn stream</h3><div class="drill-stream">' + streamHtml(agent) + '</div></div>';
+  return h;
+}
+function cardPanelHtml(card_id, now){
+  var card = findCard(card_id);
+  if(!card) return '<div class="drill-empty">card ' + esc(card_id) + ' not in the last /kanban fetch</div>';
+  var h = '<div class="drill-sec"><h3>detail</h3>';
+  h += '<div class="drill-kv"><span class="k">id</span><span class="v">' + esc(card.id) + '</span></div>';
+  h += '<div class="drill-kv"><span class="k">status</span><span class="v">' + esc(card.status) + '</span></div>';
+  h += '<div class="drill-kv"><span class="k">assignee</span><span class="v">' + esc(card.assignee || "—") + '</span></div>';
+  h += '<div class="drill-kv"><span class="k">priority</span><span class="v">' + (card.priority != null ? card.priority : "—") + '</span></div>';
+  h += '<div class="drill-kv"><span class="k">created</span><span class="v">' + fmtAgo(card.created_at, now) + '</span></div>';
+  if(card.block_kind) h += '<div class="drill-kv"><span class="k">block</span><span class="v" style="color:var(--bad)">' + esc(card.block_kind) + '</span></div>';
+  if(card.consecutive_failures) h += '<div class="drill-kv"><span class="k">failures</span><span class="v">' + card.consecutive_failures + '</span></div>';
+  if(card.parents && card.parents.length) h += '<div class="drill-kv"><span class="k">parents</span><span class="v">' + esc(card.parents.join(", ")) + '</span></div>';
+  if(card.children && card.children.length) h += '<div class="drill-kv"><span class="k">children</span><span class="v">' + esc(card.children.join(", ")) + '</span></div>';
+  h += '</div>';
+  // spec / latest run
+  h += '<div class="drill-sec"><h3>latest run</h3>';
+  var lr = card.latest_run;
+  if(lr){
+    h += '<div class="drill-kv"><span class="k">run</span><span class="v">' + esc(lr.run_status || lr.outcome || "—") + '</span></div>';
+    if(lr.outcome && lr.outcome !== lr.run_status) h += '<div class="drill-kv"><span class="k">outcome</span><span class="v">' + esc(lr.outcome) + '</span></div>';
+    if(lr.ended_at) h += '<div class="drill-kv"><span class="k">ended</span><span class="v">' + fmtAgo(lr.ended_at, now) + '</span></div>';
+    if(lr.summary) h += '<div class="drill-kv"><span class="k">summary</span><span class="v">' + esc(lr.summary) + '</span></div>';
+  } else {
+    h += '<div class="drill-empty">no run recorded yet</div>';
+  }
+  h += '</div>';
+  // who is on this card right now (live /state cross-ref)
+  h += '<div class="drill-sec"><h3>live</h3>';
+  var onIt = [];
+  Object.keys(state.agents).forEach(function(a){ if(state.agents[a].card_id === card_id) onIt.push(a); });
+  if(onIt.length){
+    h += '<div class="drill-kv"><span class="k">working on it</span><span class="v">' +
+      esc(onIt.join(", ")) + '</span></div>';
+  } else {
+    h += '<div class="drill-empty">no agent on this card right now</div>';
+  }
+  h += '</div>';
+  h += '<div class="drill-actions"><a href="/board" target="_top">open board</a><a href="/chat" target="_top">read transcript</a></div>';
+  return h;
+}
+function renderPanel(){
+  if(!drill.open) return;
+  var now = Date.now();
+  if(drill.mode === "agent"){
+    drillTitle.textContent = drill.agent;
+    drillTitle.title = drill.agent;
+    var ag = state.agents[drill.agent];
+    var stuck = isStuck(state, now, drill.agent);
+    drillChip.innerHTML = ag ? statusChip(ag.state, stuck) : statusChip(null, false);
+    drillBody.innerHTML = agentPanelHtml(drill.agent, now);
+  } else if(drill.mode === "card"){
+    var c = findCard(drill.card_id);
+    drillTitle.textContent = c ? c.title : drill.card_id;
+    drillTitle.title = c ? c.title : drill.card_id;   // full title on hover
+    drillChip.innerHTML = c ? statusChip(c.status, false) : "";
+    drillBody.innerHTML = cardPanelHtml(drill.card_id, now);
+  }
+  // follow the live stream — show the LATEST (tail) of each running block
+  var flows = drillBody.querySelectorAll(".drill-flow");
+  for(var i=0;i<flows.length;i++) flows[i].scrollTop = flows[i].scrollHeight;
+  // in-panel card links (e.g. "current card" -> drill into that card)
+  drillBody.querySelectorAll("a[data-card]").forEach(function(a){
+    a.addEventListener("click", function(e){
+      e.preventDefault();
+      openCardPanel(a.getAttribute("data-card"), null, null);
+    });
+  });
+}
+// keep the open panel live on the same 120ms tick as the scene
+setInterval(function(){ if(drill.open) renderPanel(); }, 120);
+
+// ---- day/night ambient cycle (1 real hour = 1 scene day) ----
+// Flat/crisp: a 192x168 fx canvas (pixelated, scaled like #env) holds a flat
+// ambient tint + stepped square lamp glows. It is redrawn ONLY when the
+// quantized scene state changes (~every 8-15s), so per-frame cost is ~0 — the
+// 120ms render loop above is untouched. Lamps auto-on at night; a small
+// liveness floor keeps the office alive when idle and brightens with activity.
+var DAY_MS = 3600000; // 1 real hour = 1 full scene day
+var ACCENTS = { "product-owner":[232,185,61], "pixel-art-designer":[224,93,93], "ux-ui":[93,184,224],
+  "software-engineer":[126,201,111], "qa-visual":[201,143,224], "qa-journey":[224,154,93] };
+var LAMPS = AGENTS.map(function(name, i){ // desk-lamp HEAD centers, derived from shared 2x3 geometry
+  var o = deskOrigin(i);
+  return { x: o.x + DESK.lamp.dx, y: o.y + DESK.lamp.dy, c: ACCENTS[name] };
+});
+var TINT_KEYS = [ // [hour, r, g, b, alpha] flat ambient tint keyframes (wraps 24->0)
+  [0.0,  10,16,40,  0.42],
+  [5.0, 107,74,122, 0.24],
+  [8.0, 185,138,90,  0.10],
+  [12.0,255,242,208, 0.03],
+  [17.0,185,138,90,  0.09],
+  [19.5,150,70,58,   0.22],
+  [22.0, 16,20,46,   0.36],
+  [24.0,  10,16,40,  0.42]
+];
+function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
+function tintAt(hour){
+  var i=0;
+  while(i<TINT_KEYS.length-1 && TINT_KEYS[i+1][0] < hour) i++;
+  var a=TINT_KEYS[i], b=TINT_KEYS[Math.min(i+1,TINT_KEYS.length-1)];
+  var t=(hour-a[0])/((b[0]-a[0])||1);
+  function L(p){ return Math.round(a[p]+(b[p]-a[p])*t); }
+  return { r:L(1), g:L(2), b:L(3), a:+(a[4]+(b[4]-a[4])*t).toFixed(3) };
+}
+function sceneState(now){
+  var hour = ((now % DAY_MS)/DAY_MS)*24;            // 0..24 scene hours
+  var daylight = (Math.cos((hour-12)*Math.PI/12)+1)/2; // 1 noon, 0 midnight
+  var darkness = 1-daylight;
+  var lampOn = clamp((darkness-0.40)/0.40, 0, 1);   // dusk->dawn auto-on
+  var live = (state.roundActive || Object.keys(state.agents).length) ? 0.15 : 0;
+  var glow = clamp(0.10 + 0.85*lampOn + live, 0, 1); // liveness floor + night
+  return { hour:hour, darkness:darkness, lampOn:lampOn, tint:tintAt(hour), glow:glow };
+}
+var fxc = document.getElementById("fx").getContext("2d");
+function drawLamp(c, L, g){
+  if(g<=0.004) return;
+  var cx=Math.round(L.x), cy=Math.round(L.y), r=L.c;
+  var rings=[[16,0.10],[12,0.22],[8,0.45],[4,0.90]]; // outer->inner flat steps
+  for(var i=0;i<rings.length;i++){
+    var s=rings[i][0];
+    c.fillStyle="rgba("+r[0]+","+r[1]+","+r[2]+","+(rings[i][1]*g).toFixed(3)+")";
+    c.fillRect(cx-s/2, cy-s/2, s, s);
+  }
+}
+function drawFX(st){
+  fxc.clearRect(0,0,192,168);
+  var t=st.tint;
+  fxc.fillStyle="rgba("+t.r+","+t.g+","+t.b+","+t.a+")";
+  fxc.fillRect(0,0,192,168);
+  for(var i=0;i<LAMPS.length;i++) drawLamp(fxc, LAMPS[i], st.glow);
+}
+var sceneClockEl = document.getElementById("sceneClock");
+var lastSceneKey = "";
+function updateScene(now){
+  now = now || Date.now();
+  var st = sceneState(now);
+  // scene clock: update each tick (cheap) so the day/night time stays legible
+  var h=Math.floor(st.hour), m=Math.floor((st.hour%1)*60);
+  var icon = st.darkness>0.5 ? "\u263D" : "\u2600";
+  var label = icon+" "+(h<10?"0":"")+h+":"+(m<10?"0":"")+m;
+  if(sceneClockEl.textContent !== label) sceneClockEl.textContent = label;
+  // fx canvas: redraw only when the quantized tint/glow actually changes
+  var key = st.tint.r+","+st.tint.g+","+st.tint.b+","
+          + Math.round(st.tint.a*100) + "," + Math.round(st.glow*100);
+  if(key === lastSceneKey) return;
+  lastSceneKey = key;
+  drawFX(st);
+}
+setInterval(function(){ updateScene(Date.now()); }, 1000);
+updateScene(Date.now());
+
+// ---- idle ambience: coffee steam + plant sway (tied to real liveness) ----
+// A 192x168 canvas above the tint, below agents/board, redrawn at ~12fps.
+// Full when the office is idle (no round, no active agents); dimmed to 35%
+// when agents are working so the ambience recedes behind the activity.
+var ambCtx = document.getElementById("ambience").getContext("2d");
+var MUGS = AGENTS.map(function(name, i){ // mug centers (steam origin), derived from shared 2x3 geometry
+  var o = deskOrigin(i);
+  return { x: o.x + DESK.mug.dx, y: o.y + DESK.mug.dy };
+});
+var PLANTS = [                  // corner plant leaf-tips (baked art) — bright tip sways +-1px
+  { x: 9,   y: 152, c: "rgb(150,214,150)", ph: 0.0 },
+  { x: 181, y: 152, c: "rgb(150,214,150)", ph: 1.6 }
+];
+function drawAmbience(now){
+  var idle = !state.roundActive && Object.keys(state.agents).length === 0;
+  var amb = idle ? 1 : 0.35;
+  ambCtx.clearRect(0, 0, 192, 168);
+  var t = now / 1000;
+  // coffee steam: 3 staggered rising puffs per desk mug (mug bodies are baked into the scene)
+  for(var m = 0; m < MUGS.length; m++){
+    for(var i = 0; i < 3; i++){
+      var cycle = (t * 0.9 + i / 3 + m * 0.17) % 1;   // 0..1 rise cycle, staggered per mug
+      var py = MUGS[m].y - 2 - Math.round(cycle * 12);
+      var px = MUGS[m].x + Math.round(Math.sin(cycle * 6.28 + i + m) * 1.2);
+      var a = 0.30 * amb * (1 - cycle);
+      if(a <= 0.01) continue;
+      ambCtx.globalAlpha = a;
+      ambCtx.fillStyle = "rgb(205,214,226)";
+      ambCtx.fillRect(px, py, 1, 2);
+    }
+  }
+  ambCtx.globalAlpha = 1;
+  // plant sway: bright tip pixel oscillates +-1px (slow), per-plant phase
+  for(var j = 0; j < PLANTS.length; j++){
+    var p = PLANTS[j];
+    var sway = Math.round(Math.sin(t * 0.8 + p.ph) * amb);
+    ambCtx.globalAlpha = 0.9 * amb;
+    ambCtx.fillStyle = p.c;
+    ambCtx.fillRect(p.x + sway, p.y, 1, 1);
+    ambCtx.globalAlpha = 0.5 * amb;
+    ambCtx.fillRect(p.x + 1 - sway, p.y + 1, 1, 1);   // 2nd leaf, opposite phase
+  }
+  ambCtx.globalAlpha = 1;
+}
+setInterval(function(){ drawAmbience(Date.now()); }, 80);
+drawAmbience(Date.now());
+
+// ---- live events ----
+var connPrompted = false;
+function connect(){
+  var es = new EventSource("/events" + (authToken ? "?token=" + encodeURIComponent(authToken) : ""));
+  es.onopen = function(){ conn.textContent = "live"; conn.className = "pill live"; };
+  es.onmessage = function(e){
+    var evt; try { evt = JSON.parse(e.data); } catch(_){ return; }
+    state = applyEvent(state, evt, Date.now());
+    if(evt.type === "turn_delta"){ pushStream(evt.agent, evt.kind, evt.delta); }
+    else if(evt.type === "turn" && evt.state === "thinking"){ resetStream(evt.agent); }
+    if(evt.type === "kanban" && evt.changed) loadKanban();   // pin-pop: re-fetch + diff for landed cards
+    if(evt.type === "turn_delta" && evt.kind === "tool") flickerLamp(evt.agent);
+  };
+  es.onerror = function(){
+    if(!authToken && !connPrompted){
+      connPrompted = true;
+      if(promptForToken()){ es.close(); connect(); return; } // reconnect with ?token=
+    }
+    conn.textContent = "reconnecting"; conn.className = "pill";
+  };
+}
+connect();
+
+// expose the new micro-motion helpers for the headless verify gate (node)
+if (typeof window !== "undefined"){
+  window.buildCols = buildCols; window.diffLands = diffLands;
+  window.__stepPops = stepPops;   // force a synchronous pin-pop render (visual test)
+  window.__pops = pops;           // live pop array (visual test)
+  window.__COLHEAD = COLHEAD;     // column colors (visual test)
+  window.__LABELS = LABELS;       // stage labels (visual test)
+  // drill-in hit regions (t_7049c92e): geometry for the click-to-drill overlay
+  window.__HITREGIONS = HITREGIONS; window.__hitTest = hitTest;
+  window.__cardIdAt = cardIdAt;
+  // drill-in panel (t_bb332f8e): open/close + live stream for the verify gate
+  window.__openAgentPanel = openAgentPanel; window.__openCardPanel = openCardPanel;
+  window.__closePanel = closePanel; window.__pushStream = pushStream;
+  window.__renderPanel = renderPanel; window.__drill = drill;
+  window.__turnStream = turnStream; window.__findCard = findCard;
+  // visual test hook: force a pin-pop at (colKey, row) driving the real stepPops
+  window.__testPop = function(colKey, row){
+    var i = ORDER.indexOf(colKey); if(i < 0) return;
+    pops.push({ x: COLX[i] + 9, y: 19 + row * 4, t0: Date.now(), color: COLHEAD[colKey] });
+    if(!boardFxRaf) boardFxRaf = requestAnimationFrame(stepPops);
+  };
+}
+if (typeof module !== "undefined" && module.exports){
+  module.exports.buildCols = buildCols;
+  module.exports.diffLands = diffLands;
+  module.exports.ORDER = ORDER;
+  module.exports.COLX = COLX;
+  module.exports.HITREGIONS = HITREGIONS;
+  module.exports.hitTest = hitTest;
+  module.exports.cardIdAt = cardIdAt;
+}
+</script>
+</body>
+</html>
