@@ -110,11 +110,53 @@ function measureHeight(obj) {
   return { min: box.min.clone(), max: box.max.clone(), h: box.max.y - box.min.y };
 }
 
+// ================= contrast / outline fixes (asset-side, QA gate t_de12c231) =================
+// Root cause: flat pastel PBR colors + ACES tone mapping wash the board columns and
+// avatar/desk edges into the cream background at 390px. Fixes: darken board bg,
+// saturate the 5 columns, add subtle dark edge lines (desks) + inverted-hull outlines
+// (avatars). Outline opacity is day/night-aware (stronger by day).
+const outlineMats = []; // { mat, day, night }
+function applyBoardContrast(root) {
+  const mats = {};
+  root.traverse(o => { if (o.isMesh && o.material && o.material.name) mats[o.material.name] = o.material; });
+  // darken board background so the 5 columns read as discrete items (gaps become dark dividers)
+  if (mats['board_bg']) mats['board_bg'].color.setHex(0x232833);
+  // boost column saturation + value separation (pastels compress to a uniform mid-gray under ACES)
+  const COL = { col_0: 0xf2b01e, col_1: 0x6b8cae, col_2: 0x2e86e0, col_3: 0xe04848, col_4: 0x52b04a };
+  for (const k in COL) if (mats[k]) mats[k].color.setHex(COL[k]);
+}
+function addDeskOutlines(root) {
+  const mat = new THREE.LineBasicMaterial({ color: 0x3a2a1e, transparent: true, opacity: 0.5 });
+  outlineMats.push({ mat, day: 0.55, night: 0.28 });
+  const meshes = [];
+  root.traverse(o => { if (o.isMesh && o.material && o.material.name === 'wood_top') meshes.push(o); });
+  for (const m of meshes) m.add(new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry, 24), mat));
+}
+function addAvatarOutline(root) {
+  const mat = new THREE.MeshBasicMaterial({ color: 0x3a2a1e, side: THREE.BackSide, transparent: true, opacity: 0.8 });
+  outlineMats.push({ mat, day: 0.85, night: 0.5 });
+  // collect first, then add shells — adding a Mesh child mid-traverse would recurse into it (stack overflow)
+  const meshes = [];
+  root.traverse(o => { if (o.isMesh && !o.userData.isOutline) meshes.push(o); });
+  for (const m of meshes) {
+    const shell = new THREE.Mesh(m.geometry, mat);
+    shell.scale.setScalar(1.04);
+    shell.userData.isOutline = true;
+    m.add(shell);
+  }
+}
+function updateOutlineOpacity() {
+  const d = sceneState().daylight;
+  for (const o of outlineMats) o.mat.opacity = o.night + (o.day - o.night) * d;
+}
+
 async function loadAssets() {
   // environment (room, desks, wall board, window, clock, plant)
   const env = await loader.loadAsync('/assets/office3d/environment.glb');
   env.scene.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
   scene.add(env.scene);
+  applyBoardContrast(env.scene);
+  addDeskOutlines(env.scene);
   // capture desk-lamp world positions (desk_0..desk_5 each have a desk_lamp child)
   const lampPos = [];
   for (let i = 0; i < 6; i++) {
@@ -136,6 +178,7 @@ async function loadAssets() {
     root.position.set(x3, -m.min.y * scale, z3); // feet at y=0
     root.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
     scene.add(root);
+    addAvatarOutline(root);
     const armL = root.getObjectByName('armL'), armR = root.getObjectByName('armR'), head = root.getObjectByName('head');
     // state glow: a small emissive disc at the desk (profile-colored) + a point lamp
     const glowMat = new THREE.MeshBasicMaterial({ color: new THREE.Color().setHex(accentHex(name)), transparent: true, opacity: 0.0 });
@@ -234,6 +277,7 @@ function applyLighting() {
     av.lamp.intensity = av._lampBase;
     av.lamp.color.copy(av.color);
   }
+  updateOutlineOpacity();
 }
 
 async function fetchState() {
