@@ -102,11 +102,43 @@ function measureHeight(obj) {
   return { min: box.min.clone(), max: box.max.clone(), h: box.max.y - box.min.y };
 }
 
+// ================= day-contrast edges (QA gate t_de12c231) =================
+// Pastel-on-pastel: desk/avatar edges blend into floor/walls at 390px.
+// Subtle dark rim on desk tops + dark inverted-hull outline on avatars,
+// DAY mode only (opacity scales with daylight; fully off at night).
+// Back-wall board is intentionally untouched (separate card if still a smear).
+const dayEdgeMats = []; // { mat, dayOpacity }
+function addDeskEdges(root) {
+  const mat = new THREE.LineBasicMaterial({ color: 0x4a3526, transparent: true, opacity: 0 });
+  dayEdgeMats.push({ mat, dayOpacity: 0.55 });
+  root.traverse(o => {
+    if (o.isMesh && o.material && o.material.name === 'wood_top') {
+      o.add(new THREE.LineSegments(new THREE.EdgesGeometry(o.geometry, 24), mat));
+    }
+  });
+}
+function addAvatarOutline(root) {
+  const mat = new THREE.MeshBasicMaterial({ color: 0x3a2a1e, side: THREE.BackSide, transparent: true, opacity: 0 });
+  dayEdgeMats.push({ mat, dayOpacity: 0.85 });
+  root.traverse(o => {
+    if (o.isMesh) {
+      const shell = new THREE.Mesh(o.geometry, mat);
+      shell.scale.setScalar(1.04);
+      o.add(shell);
+    }
+  });
+}
+function updateDayEdges() {
+  const d = sceneState().daylight;
+  for (const o of dayEdgeMats) o.mat.opacity = o.dayOpacity * d;
+}
+
 async function loadAssets() {
   // environment (room, desks, wall board, window, clock, plant)
   const env = await loader.loadAsync('/assets/office3d/environment.glb');
   env.scene.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
   scene.add(env.scene);
+  addDeskEdges(env.scene);
   // capture desk-lamp world positions (desk_0..desk_5 each have a desk_lamp child)
   const lampPos = [];
   for (let i = 0; i < 6; i++) {
@@ -128,6 +160,7 @@ async function loadAssets() {
     root.position.set(x3, -m.min.y * scale, z3); // feet at y=0
     root.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
     scene.add(root);
+    addAvatarOutline(root);
     const armL = root.getObjectByName('armL'), armR = root.getObjectByName('armR'), head = root.getObjectByName('head');
     // state glow: a small emissive disc at the desk (profile-colored) + a point lamp
     const glowMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(ACCENTS[name][0] / 255, ACCENTS[name][1] / 255, ACCENTS[name][2] / 255), transparent: true, opacity: 0.0 });
@@ -217,6 +250,7 @@ function applyLighting() {
     av.lamp.intensity = (active ? 2.2 : 0.0) + st.glow * (active ? 0.4 : 0.7);
     av.lamp.color.copy(av.color);
   }
+  updateDayEdges();
 }
 
 async function fetchState() {
